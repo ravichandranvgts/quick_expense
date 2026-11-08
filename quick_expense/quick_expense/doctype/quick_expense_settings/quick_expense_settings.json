@@ -1,0 +1,431 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-11-06 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "tab_general",
+  "enable_quick_expense",
+  "cb_g1",
+  "default_naming_series",
+  "round_grand_total",
+  "sb_company",
+  "company_settings",
+  "allowed_accounts",
+  "user_defaults",
+  "tab_gstin",
+  "use_gstin_api",
+  "cancelled_gstin_action",
+  "cb_gs1",
+  "require_approval_manual_supplier_name",
+  "tab_controls",
+  "sb_attach",
+  "attachment_mandatory_above",
+  "allowed_attachment_types",
+  "max_attachment_size_mb",
+  "sb_limits",
+  "maximum_amount_per_entry",
+  "maximum_backdated_days",
+  "tax_difference_tolerance",
+  "itc_time_limit_warning_days",
+  "cb_lim",
+  "cash_limit_per_person_per_day",
+  "cash_limit_transporters",
+  "cash_limit_action",
+  "sb_misc",
+  "users_see_only_own_entries",
+  "gst_lock_dates",
+  "tab_approval",
+  "approval_required",
+  "escalation_after_days",
+  "allow_self_approval",
+  "approval_rules",
+  "tab_je",
+  "restrict_input_gst_accounts",
+  "include_in_gstr3b",
+  "include_in_purchase_register",
+  "cb_je",
+  "verified_ic_version",
+  "disable_overrides_on_version_mismatch",
+  "overrides_disabled",
+  "overrides_disabled_reason",
+  "last_self_test_on",
+  "tab_notify",
+  "notify_approvers",
+  "notify_creator",
+  "monthly_2b_follow_up_email",
+  "tab_setup",
+  "setup_check_html",
+  "setup_check_result"
+ ],
+ "fields": [
+  {
+   "fieldname": "tab_general",
+   "fieldtype": "Tab Break",
+   "label": "General"
+  },
+  {
+   "default": "1",
+   "fieldname": "enable_quick_expense",
+   "fieldtype": "Check",
+   "label": "Enable Quick Expense"
+  },
+  {
+   "fieldname": "cb_g1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "QE-.YYYY.-.#####",
+   "fieldname": "default_naming_series",
+   "fieldtype": "Data",
+   "label": "Default Naming Series",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "round_grand_total",
+   "fieldtype": "Check",
+   "label": "Round Grand Total to Nearest Rupee"
+  },
+  {
+   "fieldname": "sb_company",
+   "fieldtype": "Section Break",
+   "label": "Company Settings"
+  },
+  {
+   "fieldname": "company_settings",
+   "fieldtype": "Table",
+   "label": "Company Settings",
+   "options": "Quick Expense Company Setting"
+  },
+  {
+   "fieldname": "allowed_accounts",
+   "fieldtype": "Table",
+   "label": "Allowed Cash and Bank Accounts",
+   "options": "Quick Expense Allowed Account"
+  },
+  {
+   "fieldname": "user_defaults",
+   "fieldtype": "Table",
+   "label": "User Defaults",
+   "options": "Quick Expense User Default"
+  },
+  {
+   "fieldname": "tab_gstin",
+   "fieldtype": "Tab Break",
+   "label": "GSTIN"
+  },
+  {
+   "default": "1",
+   "fieldname": "use_gstin_api",
+   "fieldtype": "Check",
+   "label": "Use India Compliance GSTIN API"
+  },
+  {
+   "default": "Block",
+   "fieldname": "cancelled_gstin_action",
+   "fieldtype": "Select",
+   "label": "Action on Cancelled or Suspended GSTIN",
+   "options": "Block\nWarn"
+  },
+  {
+   "fieldname": "cb_gs1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "require_approval_manual_supplier_name",
+   "fieldtype": "Check",
+   "label": "Require Approval when Supplier Name is Entered Manually"
+  },
+  {
+   "fieldname": "tab_controls",
+   "fieldtype": "Tab Break",
+   "label": "Controls"
+  },
+  {
+   "fieldname": "sb_attach",
+   "fieldtype": "Section Break",
+   "label": "Attachments"
+  },
+  {
+   "default": "0",
+   "description": "0 means an attachment is always required.",
+   "fieldname": "attachment_mandatory_above",
+   "fieldtype": "Currency",
+   "label": "Bill Attachment Mandatory Above Amount",
+   "options": "INR"
+  },
+  {
+   "default": "pdf,jpg,jpeg,png",
+   "fieldname": "allowed_attachment_types",
+   "fieldtype": "Data",
+   "label": "Allowed Attachment Types"
+  },
+  {
+   "default": "5",
+   "fieldname": "max_attachment_size_mb",
+   "fieldtype": "Float",
+   "label": "Maximum Attachment Size (MB)"
+  },
+  {
+   "fieldname": "sb_limits",
+   "fieldtype": "Section Break",
+   "label": "Limits"
+  },
+  {
+   "default": "50000",
+   "fieldname": "maximum_amount_per_entry",
+   "fieldtype": "Currency",
+   "label": "Maximum Amount per Entry",
+   "options": "INR"
+  },
+  {
+   "default": "30",
+   "fieldname": "maximum_backdated_days",
+   "fieldtype": "Int",
+   "label": "Maximum Back-dated Days"
+  },
+  {
+   "default": "1",
+   "fieldname": "tax_difference_tolerance",
+   "fieldtype": "Currency",
+   "label": "Tax Difference Tolerance",
+   "options": "INR"
+  },
+  {
+   "default": "30",
+   "fieldname": "itc_time_limit_warning_days",
+   "fieldtype": "Int",
+   "label": "ITC Time Limit Warning Days"
+  },
+  {
+   "fieldname": "cb_lim",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "10000",
+   "fieldname": "cash_limit_per_person_per_day",
+   "fieldtype": "Currency",
+   "label": "Cash Limit per Person per Day",
+   "options": "INR"
+  },
+  {
+   "default": "35000",
+   "fieldname": "cash_limit_transporters",
+   "fieldtype": "Currency",
+   "label": "Cash Limit for Transporters",
+   "options": "INR"
+  },
+  {
+   "default": "Warn",
+   "fieldname": "cash_limit_action",
+   "fieldtype": "Select",
+   "label": "Cash Limit Action",
+   "options": "Warn\nBlock"
+  },
+  {
+   "fieldname": "sb_misc",
+   "fieldtype": "Section Break",
+   "label": "Other Controls"
+  },
+  {
+   "fieldname": "users_see_only_own_entries",
+   "fieldtype": "Check",
+   "label": "Users See Only Their Own Entries"
+  },
+  {
+   "fieldname": "gst_lock_dates",
+   "fieldtype": "Table",
+   "label": "GST Lock Date per Company GSTIN",
+   "options": "Quick Expense GST Lock Date"
+  },
+  {
+   "fieldname": "tab_approval",
+   "fieldtype": "Tab Break",
+   "label": "Approval"
+  },
+  {
+   "default": "1",
+   "description": "Only an Accounts Manager can switch this off.",
+   "fieldname": "approval_required",
+   "fieldtype": "Check",
+   "label": "Approval Required"
+  },
+  {
+   "default": "2",
+   "fieldname": "escalation_after_days",
+   "fieldtype": "Int",
+   "label": "Escalation After Days"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_self_approval",
+   "fieldtype": "Check",
+   "label": "Allow Self Approval"
+  },
+  {
+   "fieldname": "approval_rules",
+   "fieldtype": "Table",
+   "label": "Approval Matrix",
+   "options": "Quick Expense Approval Rule"
+  },
+  {
+   "fieldname": "tab_je",
+   "fieldtype": "Tab Break",
+   "label": "India Compliance Reports"
+  },
+  {
+   "fieldname": "restrict_input_gst_accounts",
+   "fieldtype": "Check",
+   "label": "Restrict Input GST Accounts to Quick Expense Journal Entries"
+  },
+  {
+   "default": "1",
+   "fieldname": "include_in_gstr3b",
+   "fieldtype": "Check",
+   "label": "Include Journal Entries in GSTR-3B Report"
+  },
+  {
+   "default": "1",
+   "fieldname": "include_in_purchase_register",
+   "fieldtype": "Check",
+   "label": "Include Journal Entries in GST Purchase Register"
+  },
+  {
+   "fieldname": "cb_je",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "verified_ic_version",
+   "fieldtype": "Data",
+   "label": "Verified India Compliance Version",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "disable_overrides_on_version_mismatch",
+   "fieldtype": "Check",
+   "label": "Disable Overrides on Version Mismatch"
+  },
+  {
+   "fieldname": "overrides_disabled",
+   "fieldtype": "Check",
+   "label": "Overrides Disabled by Compatibility Guard",
+   "read_only": 1
+  },
+  {
+   "fieldname": "overrides_disabled_reason",
+   "fieldtype": "Small Text",
+   "label": "Compatibility Guard Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_self_test_on",
+   "fieldtype": "Datetime",
+   "label": "Last Self-test On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tab_notify",
+   "fieldtype": "Tab Break",
+   "label": "Notifications"
+  },
+  {
+   "default": "1",
+   "fieldname": "notify_approvers",
+   "fieldtype": "Check",
+   "label": "Notify Approvers on Submission and Escalation"
+  },
+  {
+   "default": "1",
+   "fieldname": "notify_creator",
+   "fieldtype": "Check",
+   "label": "Notify Creator on Approval or Rejection"
+  },
+  {
+   "default": "1",
+   "fieldname": "monthly_2b_follow_up_email",
+   "fieldtype": "Check",
+   "label": "Monthly 2B Pending Follow-up Email"
+  },
+  {
+   "fieldname": "tab_setup",
+   "fieldtype": "Tab Break",
+   "label": "Setup Check"
+  },
+  {
+   "fieldname": "setup_check_html",
+   "fieldtype": "HTML",
+   "label": "Setup Check Result"
+  },
+  {
+   "fieldname": "setup_check_result",
+   "fieldtype": "Long Text",
+   "hidden": 1,
+   "label": "Setup Check Data",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-11-06 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Quick Expense",
+ "name": "Quick Expense Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 0,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 0,
+   "submit": 0,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager",
+   "share": 0,
+   "submit": 0,
+   "write": 0
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -1,0 +1,38 @@
+/* Quick Expense: large, readable form and print-friendly approval buttons */
+[data-doctype="Journal Entry"] .frappe-control .control-input,
+[data-doctype="Journal Entry"] .frappe-control .control-value,
+[data-doctype="Journal Entry"] .grid-static-col {
+	font-size: 15px;
+}
+[data-doctype="Journal Entry"] .control-label {
+	font-size: 13px;
+	font-weight: 600;
+}
+[data-doctype="Journal Entry"] [data-fieldname="qe_grand_total"] .control-value {
+	font-size: 22px;
+	font-weight: 700;
+}
+.qe-headline {
+	font-size: 14px;
+	line-height: 1.6;
+}
+.qe-big-button {
+	font-size: 15px !important;
+	padding: 6px 18px !important;
+}
+.qe-red-banner {
+	font-weight: 600;
+}
+.qe-setup-table td,
+.qe-setup-table th {
+	font-size: 14px;
+}
+.qe-big {
+	font-size: 16px;
+}
+@media (max-width: 767px) {
+	.qe-big-button {
+		width: 100%;
+		margin-bottom: 8px;
+	}
+}

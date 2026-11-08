@@ -1,0 +1,11 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+node_modules/
+*.egg-info/
+dist/
+build/
+.DS_Store
+*.log
