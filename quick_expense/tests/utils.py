@@ -41,6 +41,11 @@ SUPPLIER_INDIVIDUAL = make_gstin("33", "ABCPS3333C")  # proprietor (non-body-cor
 SUPPLIER_COMPOSITION = make_gstin("33", "AAFCS6666F")
 SUPPLIER_CANCELLED = make_gstin("33", "AAFCS7777G")
 SUPPLIER_SAME_PAN = make_gstin("27", COMPANY_PAN)
+#: Active, with an address, and **no legal name** on the portal. Reported from
+#: UAT on 06AACCG0527D1Z8: state, address, pincode and status all filled and
+#: the supplier name blank — and blank is the one value the form would not
+#: then let anybody type, because it had locked the field.
+SUPPLIER_NO_LEGAL_NAME = make_gstin("06", "AACCG0527D")
 
 FAKE_PORTAL = {
 	SUPPLIER_TN: dict(
@@ -103,6 +108,22 @@ FAKE_PORTAL = {
 				"dst": "Mumbai",
 				"stcd": "Maharashtra",
 				"pncd": "400001",
+			}
+		},
+	),
+	SUPPLIER_NO_LEGAL_NAME: dict(
+		lgnm="",
+		tradeNam="Gurgaon Facilities",
+		sts="Active",
+		dty="Regular",
+		ctb="Private Limited Company",
+		pradr={
+			"addr": {
+				"bno": "Tower-B",
+				"st": "Unitech Signature Tower, Sector-15",
+				"dst": "Gurugram",
+				"stcd": "Haryana",
+				"pncd": "122002",
 			}
 		},
 	),

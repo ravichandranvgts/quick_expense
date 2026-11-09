@@ -287,7 +287,34 @@ def get_gstin_details(gstin: str, force_refresh: bool = False) -> frappe._dict:
 		addresses=addresses,
 		source="API",
 	)
+	_resolve_name(details)
 	cache[gstin] = dict(details)
+	return details
+
+
+def _resolve_name(details: frappe._dict) -> frappe._dict:
+	"""The name to print on the bill, and whether it is the legal one.
+
+	The GST portal returns `lgnm` empty for some registrations — a proprietor
+	filing under a shop name, most often — while still returning the address
+	and an Active status. The form then had a blank supplier name it had also
+	just locked, because the client set `name_entered_manually = 0` whenever
+	the API answered at all. Blank *and* read-only, and `validate` refuses to
+	save without a name: a dead end with no way out of it.
+
+	So the fallback is legal name, then trade name, then business name. It
+	lives here rather than in the client and the save path separately, because
+	two copies of a fallback are two answers to "what is this supplier
+	called", and the bill and the screen would eventually disagree.
+
+	`name_is_legal` travels with it so the caller can say which one it is —
+	a trade name on a bill is not wrong, but it is not the registered name
+	either, and GSTR-2B matches on the registered one.
+	"""
+	details.resolved_name = (
+		details.get("legal_name") or details.get("trade_name") or details.get("business_name") or ""
+	)
+	details.name_is_legal = bool(details.get("legal_name"))
 	return details
 
 
@@ -296,12 +323,16 @@ def _without_api(base: frappe._dict, reason: str) -> frappe._dict:
 	otherwise the user types the name."""
 	if details := from_supplier_master(base):
 		return details
-	return frappe._dict(
-		base,
-		source="Manual",
-		message=_(
-			"{0} Type the supplier legal name, or ask your administrator to add the India Compliance API Secret in GST Settings."
-		).format(reason),
+	# Resolved here too, so every dict this module returns carries the key and
+	# no caller has to ask which branch produced it.
+	return _resolve_name(
+		frappe._dict(
+			base,
+			source="Manual",
+			message=_(
+				"{0} Type the supplier legal name, or ask your administrator to add the India Compliance API Secret in GST Settings."
+			).format(reason),
+		)
 	)
 
 
@@ -330,7 +361,7 @@ def from_supplier_master(base: frappe._dict) -> frappe._dict | None:
 			)
 			or frappe._dict()
 		)
-	return frappe._dict(
+	details = frappe._dict(
 		base,
 		legal_name=supplier.supplier_name,
 		trade_name=supplier.supplier_name,
@@ -346,6 +377,7 @@ def from_supplier_master(base: frappe._dict) -> frappe._dict | None:
 		source="Supplier Master",
 		message=_("Supplier details filled from Supplier {0}.").format(supplier.name),
 	)
+	return _resolve_name(details)
 
 
 def is_blocking_status(status: str | None) -> bool:

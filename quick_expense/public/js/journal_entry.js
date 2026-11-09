@@ -92,15 +92,36 @@ frappe.ui.form.on("Journal Entry", {
 				}
 				const values = { qe_supplier_state: d.state, qe_gstin_status: d.status || "" };
 				if (["API", "Supplier Master"].includes(d.source)) {
+					// `resolved_name`, not `legal_name`: the portal returns an empty
+					// legal name for some registrations while still returning the
+					// address and an Active status, and this used to write that empty
+					// string in and then lock the field by setting the manual flag to
+					// 0 — blank, read-only, and refused on save with no way out.
+					const name = d.resolved_name || "";
 					Object.assign(values, {
-						qe_supplier_legal_name: d.legal_name,
+						qe_supplier_legal_name: name,
 						qe_supplier_trade_name: d.trade_name,
 						qe_supplier_address: d.address,
 						qe_supplier_pincode: d.pincode,
-						qe_supplier_name_entered_manually: 0,
+						// Unlocked when nothing came back, so it can still be typed.
+						qe_supplier_name_entered_manually: name ? 0 : 1,
 					});
 					if (QE_GSTIN_TREATMENTS.includes(d.registration_type) && d.registration_type !== frm.doc.qe_gst_treatment) {
 						values.qe_gst_treatment = d.registration_type;
+					}
+					if (!name) {
+						frappe.msgprint({
+							title: __("Supplier Name Not on the Portal"),
+							message: __("The GST portal returned no name for {0}. Type the name printed on the bill.", [gstin]),
+							indicator: "orange",
+						});
+					} else if (!d.name_is_legal) {
+						// Said out loud: a trade name is not the registered name, and
+						// GSTR-2B matches on the registered one.
+						frappe.show_alert(
+							{ message: __("The portal has no legal name for this GSTIN; its trade name was used."), indicator: "orange" },
+							7
+						);
 					}
 					if (d.source !== "API") frappe.show_alert({ message: d.message, indicator: "green" }, 5);
 				} else {

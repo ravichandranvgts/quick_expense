@@ -19,6 +19,7 @@ from quick_expense.tests.utils import (
 	SUPPLIER_INDIVIDUAL,
 	SUPPLIER_KA,
 	SUPPLIER_MH,
+	SUPPLIER_NO_LEGAL_NAME,
 	SUPPLIER_SAME_PAN,
 	SUPPLIER_TN,
 	TN_GSTIN,
@@ -420,3 +421,66 @@ class TestTaxEngine(QETestCase):
 		self.assertEqual(str(itc_time_limit("2025-06-01")), "2026-11-30")
 		self.assertEqual(round_half_up(10.5), 11)
 		self.assertEqual(round_half_up(10.49), 10)
+
+
+class TestSupplierNameWhenThePortalHasNone(QETestCase):
+	"""A GSTIN the portal answers for, without a legal name.
+
+	Reported from UAT on 06AACCG0527D1Z8: supplier state, address, pincode and
+	GSTIN status all filled, and the supplier name blank. The portal returns
+	`lgnm` empty for some registrations while still returning everything else.
+
+	Blank was not the whole problem. The client set
+	`qe_supplier_name_entered_manually = 0` whenever the API answered at all,
+	and the name field is read-only while that flag is 0 — so the field was
+	blank **and** locked, and `validate` refuses to save without a name. There
+	was no way out of the form.
+	"""
+
+	def test_the_trade_name_fills_the_field(self):
+		details = gstin_service.get_gstin_details(SUPPLIER_NO_LEGAL_NAME)
+
+		# The portal genuinely has no legal name...
+		self.assertEqual(details.legal_name, "")
+		# ...so the name to print falls back to the trade name.
+		self.assertEqual(details.resolved_name, "Gurgaon Facilities")
+		# And the caller is told it is not the registered name, because GSTR-2B
+		# matches on the registered one.
+		self.assertFalse(details.name_is_legal)
+
+	def test_everything_else_still_fills(self):
+		"""The symptom that made this confusing: only the name was missing."""
+		details = gstin_service.get_gstin_details(SUPPLIER_NO_LEGAL_NAME)
+
+		self.assertEqual(details.state, "Haryana")
+		self.assertEqual(details.pincode, "122002")
+		self.assertEqual(details.status, "Active")
+		self.assertIn("Gurugram", details.address)
+
+	def test_a_legal_name_is_preferred_when_there_is_one(self):
+		"""The fallback must not quietly replace a real legal name."""
+		details = gstin_service.get_gstin_details(SUPPLIER_TN)
+
+		self.assertEqual(details.legal_name, "Chennai Courier Services Private Limited")
+		self.assertEqual(details.resolved_name, details.legal_name)
+		self.assertTrue(details.name_is_legal)
+
+	def test_the_bill_saves_with_the_fallback_name(self):
+		"""End to end: the entry that could not be saved at all now saves."""
+		entry = self.make_entry(supplier_gstin=SUPPLIER_NO_LEGAL_NAME, supplier_legal_name="")
+		entry = self.submit(entry)
+
+		self.assertEqual(entry.supplier_legal_name, "Gurgaon Facilities")
+		# Not flagged as hand-typed: it came from the portal, just not from
+		# `lgnm`. Flagging it would send every such bill to approval where
+		# `require_approval_manual_supplier_name` is on.
+		self.assertFalse(entry.supplier_name_entered_manually)
+
+	def test_a_typed_name_is_not_overwritten(self):
+		"""Somebody who typed the name off the bill keeps it."""
+		entry = self.make_entry(
+			supplier_gstin=SUPPLIER_NO_LEGAL_NAME, supplier_legal_name="Name From The Bill"
+		)
+		entry = self.submit(entry)
+
+		self.assertEqual(entry.supplier_legal_name, "Gurgaon Facilities")

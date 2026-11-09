@@ -201,8 +201,13 @@ def fill_from_gstin(doc):
 		doc.supplier_name_entered_manually = 1
 		doc.supplier_state = doc.supplier_state or details.state
 		return
-	doc.supplier_name_entered_manually = 0
-	doc.supplier_legal_name = details.legal_name or doc.supplier_legal_name
+	# The same trap as `apply_gstin_details`, in the other direction: this set
+	# the flag to 0 unconditionally, so a portal reply with no name left the
+	# field blank *and* read-only — and `validate` then refused the save with
+	# a message the user could not act on.
+	name = details.resolved_name or doc.supplier_legal_name
+	doc.supplier_name_entered_manually = 0 if name else 1
+	doc.supplier_legal_name = name
 	doc.supplier_trade_name = details.trade_name
 	doc.supplier_state = details.state
 	doc.supplier_address = details.address
@@ -297,10 +302,17 @@ def apply_gstin_details(doc, settings, result):
 	if details.source in GSTIN_FILLED_SOURCES:
 		doc.gstin_status = details.status
 		doc.supplier_registration_type = details.registration_type
-		if details.legal_name:
-			doc.supplier_legal_name = details.legal_name
+		# `resolved_name`, so the save path and the form agree about what this
+		# supplier is called. The guard stays: a portal that answered with no
+		# name at all must not wipe a name the user typed.
+		if details.resolved_name:
+			doc.supplier_legal_name = details.resolved_name
 			doc.supplier_trade_name = details.trade_name
 			doc.supplier_name_entered_manually = 0
+		elif not (doc.supplier_legal_name or "").strip():
+			# Nothing from the portal and nothing typed: leave the field
+			# unlocked so `validate`'s refusal below is one the user can act on.
+			doc.supplier_name_entered_manually = 1
 		if details.state:
 			doc.supplier_state = details.state
 		if details.address:
