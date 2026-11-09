@@ -760,3 +760,77 @@ class TestCleanForm(QETestCase):
 			next(row for row in je.accounts if row.qe_gst_component == "Payment").account = bank()
 			with self.assertRaisesRegex(frappe.ValidationError, "Not allowed"):
 				je.save()
+
+
+class TestInvoiceManagementSystem(QETestCase):
+	"""Quick Expense Journal Entries in India Compliance's IMS."""
+
+	def setUp(self):
+		super().setUp()
+		ic_reports.apply_patches()
+
+	make_inward_supply = TestPurchaseReconciliationTool.make_inward_supply
+	entry_status = TestPurchaseReconciliationTool.entry_status
+
+	def ims(self):
+		return frappe.get_doc(
+			{
+				"doctype": "GST Invoice Management System",
+				"company": COMPANY,
+				"company_gstin": TN_GSTIN,
+				"period": getdate(today()).strftime("%m%Y"),
+			}
+		)
+
+	def make_ims_supply(self, entry, **values):
+		return self.make_inward_supply(
+			entry, ims_action="No Action", previous_ims_action="No Action", **values
+		)
+
+	def ims_row(self, data, inward):
+		return next(row for row in data if row.get("inward_supply_name") == inward.name)
+
+	def test_auto_match_shows_journal_entry(self):
+		entry = self.post(self.make_entry())
+		inward = self.make_ims_supply(entry)
+		data = self.ims().autoreconcile_and_get_data()["invoice_data"]
+		row = self.ims_row(data, inward)
+		self.assertEqual(
+			(row.purchase_doctype, row.purchase_invoice_name, row.match_status),
+			("Journal Entry", entry.linked_journal_entry, "Exact Match"),
+		)
+		self.assertEqual(self.entry_status(entry), ("Match Found", inward.name))
+		details = self.ims().get_invoice_details(entry.linked_journal_entry, inward.name)
+		self.assertEqual(details.purchase_invoice_name, entry.linked_journal_entry)
+
+	def test_reverse_charge_not_matched_in_ims(self):
+		entry = self.post(self.make_entry())
+		frappe.db.set_value("Journal Entry", entry.linked_journal_entry, "qe_is_reverse_charge", 1)
+		inward = self.make_ims_supply(entry)
+		self.ims().autoreconcile_and_get_data()
+		self.assertFalse(frappe.db.get_value("GST Inward Supply", inward.name, "link_name"))
+
+	def test_actions_move_claim_period(self):
+		entry = self.post(self.make_entry())
+		inward = self.make_ims_supply(entry)
+		ims = self.ims()
+		ims.autoreconcile_and_get_data()
+		claim = lambda: frappe.db.get_value(  # noqa: E731
+			"Journal Entry", entry.linked_journal_entry, "qe_itc_claim_period"
+		)
+
+		ims.update_action([inward.name], "Rejected")
+		self.assertEqual(claim(), "Deferred")
+		self.assertEqual(frappe.db.get_value("GST Inward Supply", inward.name, "ims_action"), "Rejected")
+
+		ims.update_action([inward.name], "Accepted")
+		self.assertEqual(claim(), ims.period)
+
+	def test_link_options_offer_journal_entry(self):
+		entry = self.post(self.make_entry())
+		inward = self.make_ims_supply(entry, bill_no="TOTALLY-DIFFERENT")
+		ims = self.ims()
+		options = ims.get_link_options("Journal Entry", {"supplier_gstin": SUPPLIER_TN})["options"]
+		self.assertIn(entry.linked_journal_entry, [option.value for option in options])
+		ims.link_documents(entry.linked_journal_entry, inward.name, "Journal Entry")
+		self.assertEqual(self.entry_status(entry), ("Match Found", inward.name))

@@ -128,6 +128,7 @@ class QuickExpenseJournalEntry:
 		# fields India Compliance asks Purchase Invoices for, mapped onto the Journal Entry
 		mapped = {
 			"supplier_name": JE.qe_supplier_legal_name,
+			"company": JE.company,
 			"gst_category": JE.qe_gst_category,
 			"reconciliation_status": JE.reconciliation_status,
 			"itc_claim_period": JE.qe_itc_claim_period,

@@ -302,8 +302,8 @@ JOURNAL_ENTRY = [
 		"fieldtype": "Data",
 		"insert_after": "qe_cb_6",
 		"no_copy": 1,
-		"length": 6,
-		"description": "Defaults to the posting month.",
+		"length": 8,
+		"description": 'Defaults to the posting month. "Deferred" when the invoice is Rejected or Pending in IMS.',
 	},
 	{
 		"fieldname": "qe_itc_claim_period_reason",

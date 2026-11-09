@@ -21,6 +21,7 @@ app_include_css = "/assets/quick_expense/css/quick_expense.css"
 doctype_js = {
 	"GSTR 3B Report": "public/js/override_banner.js",
 	"Purchase Reconciliation Tool": "public/js/override_banner.js",
+	"GST Invoice Management System": "public/js/override_banner.js",
 	"Journal Entry": "public/js/journal_entry.js",
 }
 doctype_list_js = {"Journal Entry": "public/js/journal_entry_list.js"}

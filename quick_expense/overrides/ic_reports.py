@@ -198,6 +198,13 @@ def apply_patches():
 		from quick_expense.overrides import purchase_reconciliation
 
 		purchase_reconciliation.apply_patches(_patch)
+		from quick_expense.overrides import ims
+
+		try:
+			ims.apply_patches(_patch)
+		except Exception:
+			# an IMS change must not take the GSTR-3B and 2B overrides down with it
+			frappe.log_error(title="Quick Expense: could not add Journal Entries to IMS")
 	except Exception:
 		# never break a request because India Compliance changed; the guard reports it
 		frappe.log_error(title="Quick Expense: could not apply India Compliance report overrides")

@@ -59,6 +59,16 @@ REQUIRED = [
 			"reconcile_and_generate_data",
 		),
 	),
+	(
+		"india_compliance.gst_india.doctype.gst_invoice_management_system",
+		"PurchaseInvoice",
+		("get_all", "get_unmatched"),
+	),
+	(
+		"india_compliance.gst_india.doctype.gst_invoice_management_system.gst_invoice_management_system",
+		"GSTInvoiceManagementSystem",
+		("get_link_options", "update_action"),
+	),
 	("india_compliance.gst_india.api_classes.public", "PublicAPI", ("get_gstin_info",)),
 ]
 REQUIRED_FIELDS = {
