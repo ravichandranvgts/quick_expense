@@ -23,6 +23,15 @@ def accounts_managers_for(company: str) -> list[str]:
 	return result
 
 
+def send_email(**kwargs):
+	"""Email is a courtesy: a missing or broken email account must never raise."""
+	try:
+		frappe.sendmail(now=False, **kwargs)
+	except Exception:
+		frappe.clear_last_message()
+		frappe.log_error(title="Quick Expense: email not sent", message=frappe.get_traceback())
+
+
 def send_2b_follow_up():
 	if not cint(frappe.db.get_single_value("Quick Expense Settings", "monthly_2b_follow_up_email")):
 		return
@@ -40,8 +49,6 @@ def send_2b_follow_up():
 			f"<tr><td>{r.name}</td><td>{r.company_gstin}</td><td>{r.qe_supplier_gstin}</td><td>{frappe.utils.escape_html(r.qe_supplier_legal_name or '')}</td><td>{r.qe_supplier_invoice_no or ''}</td><td style='text-align:right'>{frappe.format(r.qe_total_eligible_itc, 'Currency')}</td><td>{r.reconciliation_status or 'Unreconciled'}</td></tr>"
 			for r in rows[:200]
 		)
-		from quick_expense.services.approval_service import send_email
-
 		send_email(
 			recipients=recipients,
 			subject=_("Quick Expense: {0} bills not yet in GSTR-2B for {1}").format(len(rows), company),

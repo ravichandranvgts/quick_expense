@@ -47,7 +47,6 @@ ENTRY_TO_JE = {
 def execute():
 	from quick_expense.overrides.custom_fields import CUSTOM_FIELDS, OBSOLETE_FIELDS
 
-	frappe.reload_doc("quick_expense", "doctype", "quick_expense_approval_history")
 	create_custom_fields(CUSTOM_FIELDS, update=True)
 
 	if frappe.db.table_exists("Quick Expense Entry"):
@@ -63,10 +62,11 @@ def execute():
 			else row.qe_gst_component end
 		where je.voucher_type = 'Quick Expense' and ifnull(row.qe_gst_component, '') in ('', 'None')"""
 	)
-	frappe.db.sql(
-		"""update `tabJournal Entry` set qe_approval_status = if(docstatus = 2, 'Cancelled', if(docstatus = 1, 'Posted', 'Draft'))
+	if frappe.db.has_column("Journal Entry", "qe_approval_status"):  # removed again in v1_4
+		frappe.db.sql(
+			"""update `tabJournal Entry` set qe_approval_status = if(docstatus = 2, 'Cancelled', if(docstatus = 1, 'Posted', 'Draft'))
 		where voucher_type = 'Quick Expense' and ifnull(qe_approval_status, '') = ''"""
-	)
+		)
 
 	for doctype in OLD_DOCTYPES:
 		if frappe.db.exists("DocType", doctype):
@@ -86,6 +86,8 @@ def move_entries_onto_journal_entries():
 	):
 		values = {target: entry.get(source) for source, target in ENTRY_TO_JE.items() if source in columns}
 		frappe.db.set_value("Journal Entry", entry.linked_journal_entry, values, update_modified=False)
+		if not frappe.db.table_exists("Quick Expense Approval History"):
+			continue
 		frappe.db.sql(
 			"""update `tabQuick Expense Approval History` set parent = %s, parenttype = 'Journal Entry',
 			parentfield = 'qe_approval_history' where parent = %s and parenttype = 'Quick Expense Entry'""",

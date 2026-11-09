@@ -4,3 +4,5 @@
 [post_model_sync]
 quick_expense.patches.v1_1.journal_entry_only
 quick_expense.patches.v1_3.journal_entry_is_the_bill
+quick_expense.patches.v1_4.remove_approval_and_settings_tables
+quick_expense.patches.v1_5.simpler_bill_form

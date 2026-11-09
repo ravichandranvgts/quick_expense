@@ -17,9 +17,6 @@ QE_ROW_ONLY = f"eval:parent.voucher_type=='{JE_VOUCHER_TYPE}'"
 GST_TREATMENTS = (
 	"\nRegistered Regular\nRegistered Composition\nUnregistered\nSEZ\nOverseas\nNon-GST or Out of Scope"
 )
-APPROVAL_STATUSES = (
-	"\nDraft\nPending Approval\nApproved\nPosted\nRejected\nApproved - Posting Failed\nCancelled"
-)
 
 
 def ro(**field):
@@ -49,21 +46,12 @@ def shown_if(field):
 
 
 JOURNAL_ENTRY = [
-	{
-		"fieldname": "qe_gst_account_override_reason",
-		"label": "Reason for Using Input GST Accounts",
-		"fieldtype": "Small Text",
-		"insert_after": "voucher_type",
-		"no_copy": 1,
-		"depends_on": f"eval:doc.voucher_type!='{JE_VOUCHER_TYPE}'",
-		"description": "Required when Quick Expense restricts Input GST accounts. Accounts Manager only.",
-	},
 	# ---------------------------------------------------------------- supplier and bill (what the user types)
 	{
 		"fieldname": "qe_section",
 		"label": "Supplier and Bill",
 		"fieldtype": "Section Break",
-		"insert_after": "qe_gst_account_override_reason",
+		"insert_after": "amended_from",
 		"depends_on": QE_ONLY,
 	},
 	{
@@ -74,6 +62,7 @@ JOURNAL_ENTRY = [
 		"insert_after": "qe_section",
 		"no_copy": 1,
 		"mandatory_depends_on": QE_ONLY,
+		"description": "Set from the GST portal when a GSTIN is entered. Pick it only for a supplier without a GSTIN.",
 	},
 	{
 		"fieldname": "qe_supplier_gstin",
@@ -157,6 +146,7 @@ JOURNAL_ENTRY = [
 		"fieldtype": "Data",
 		"insert_after": "qe_cb_2",
 		"no_copy": 1,
+		"mandatory_depends_on": "eval:in_list(['Registered Regular','Registered Composition','SEZ'], doc.qe_gst_treatment)",
 	},
 	{
 		"fieldname": "qe_supplier_invoice_date",
@@ -164,6 +154,7 @@ JOURNAL_ENTRY = [
 		"fieldtype": "Date",
 		"insert_after": "qe_supplier_invoice_no",
 		"no_copy": 1,
+		"mandatory_depends_on": "eval:in_list(['Registered Regular','Registered Composition','SEZ'], doc.qe_gst_treatment)",
 	},
 	{
 		"fieldname": "qe_bill_addressed_to_company_gstin",
@@ -182,17 +173,10 @@ JOURNAL_ENTRY = [
 		"description": "GTA, advocate, security by a non-body-corporate, rent from an unregistered landlord. Overseas suppliers always are.",
 	},
 	{
-		"fieldname": "qe_is_transporter",
-		"label": "Payment to a Transporter",
-		"fieldtype": "Check",
-		"insert_after": "qe_is_reverse_charge",
-		"no_copy": 1,
-	},
-	{
 		"fieldname": "qe_bill_attachment",
 		"label": "Bill Attachment",
 		"fieldtype": "Attach",
-		"insert_after": "qe_is_transporter",
+		"insert_after": "qe_is_reverse_charge",
 		"no_copy": 1,
 	},
 	# the cash / bank account is a row in the accounts table; these two are derived from it
@@ -284,156 +268,41 @@ JOURNAL_ENTRY = [
 		"depends_on": shown_if("qe_self_invoice_no"),
 		**ro(allow_on_submit=1),
 	},
+	column("qe_cb_6", "qe_self_invoice_no"),
+	{
+		"fieldname": "qe_itc_claim_period",
+		"label": "ITC Claim Period (MMYYYY)",
+		"fieldtype": "Data",
+		"insert_after": "qe_cb_6",
+		"length": 8,
+		"description": 'The posting month. "Deferred" when the invoice is Rejected or Pending in IMS.',
+		**ro(),
+	},
 	{
 		# same field and options India Compliance puts on Purchase Invoice / Bill of Entry
 		"fieldname": "reconciliation_status",
 		"label": "Reconciliation Status",
 		"fieldtype": "Select",
 		"options": "\nNot Applicable\nReconciled\nUnreconciled\nIgnored\nMatch Found",
-		"insert_after": "qe_self_invoice_no",
+		"insert_after": "qe_itc_claim_period",
 		"print_hide": 1,
 		"depends_on": "eval:doc.voucher_type=='Quick Expense' && doc.docstatus==1",
 		**ro(allow_on_submit=1),
-	},
-	column("qe_cb_6", "reconciliation_status"),
-	{
-		"fieldname": "qe_itc_claim_period",
-		"label": "ITC Claim Period (MMYYYY)",
-		"fieldtype": "Data",
-		"insert_after": "qe_cb_6",
-		"no_copy": 1,
-		"length": 8,
-		"description": 'Defaults to the posting month. "Deferred" when the invoice is Rejected or Pending in IMS.',
-	},
-	{
-		"fieldname": "qe_itc_claim_period_reason",
-		"label": "Reason for Moving ITC Claim Period",
-		"fieldtype": "Small Text",
-		"insert_after": "qe_itc_claim_period",
-		"no_copy": 1,
-		"depends_on": shown_if("qe_itc_claim_period"),
 	},
 	{
 		"fieldname": "qe_bill_key",
 		"label": "Bill Key",
 		"fieldtype": "Data",
-		"insert_after": "qe_itc_claim_period_reason",
+		"insert_after": "reconciliation_status",
 		"search_index": 1,
 		**ro(hidden=1),
-	},
-	{
-		"fieldname": "qe_warnings",
-		"label": "Warnings",
-		"fieldtype": "Small Text",
-		"insert_after": "qe_bill_key",
-		"depends_on": shown_if("qe_warnings"),
-		**ro(),
-	},
-	# ---------------------------------------------------------------- approval (collapsed)
-	{
-		"fieldname": "qe_approval_section",
-		"label": "Approval",
-		"fieldtype": "Section Break",
-		"insert_after": "qe_warnings",
-		"depends_on": "eval:doc.voucher_type=='Quick Expense' && doc.qe_approval_status && doc.qe_approval_status!='Draft'",
-		"collapsible": 1,
-	},
-	{
-		"fieldname": "qe_approval_status",
-		"label": "Approval Status",
-		"fieldtype": "Select",
-		"options": APPROVAL_STATUSES,
-		"insert_after": "qe_approval_section",
-		"in_standard_filter": 1,
-		**ro(allow_on_submit=1),
-	},
-	{
-		"fieldname": "qe_approval_level",
-		"label": "Current Approval Level",
-		"fieldtype": "Int",
-		"insert_after": "qe_approval_status",
-		"depends_on": "eval:doc.qe_approval_status=='Pending Approval'",
-		**ro(),
-	},
-	{
-		"fieldname": "qe_approval_levels_required",
-		"label": "Approval Levels Required",
-		"fieldtype": "Int",
-		"insert_after": "qe_approval_level",
-		"depends_on": shown_if("qe_approval_levels_required"),
-		**ro(),
-	},
-	{
-		"fieldname": "qe_current_approver_role",
-		"label": "Current Approver Role",
-		"fieldtype": "Data",
-		"insert_after": "qe_approval_levels_required",
-		"depends_on": shown_if("qe_current_approver_role"),
-		**ro(),
-	},
-	{
-		"fieldname": "qe_current_approver_user",
-		"label": "Current Approver User",
-		"fieldtype": "Link",
-		"options": "User",
-		"insert_after": "qe_current_approver_role",
-		"depends_on": shown_if("qe_current_approver_user"),
-		**ro(),
-	},
-	column("qe_cb_7", "qe_current_approver_user"),
-	{
-		"fieldname": "qe_submitted_for_approval_on",
-		"label": "Submitted for Approval On",
-		"fieldtype": "Datetime",
-		"insert_after": "qe_cb_7",
-		**ro(),
-	},
-	{
-		"fieldname": "qe_last_escalated_on",
-		"label": "Last Escalated On",
-		"fieldtype": "Datetime",
-		"insert_after": "qe_submitted_for_approval_on",
-		"depends_on": shown_if("qe_last_escalated_on"),
-		**ro(),
-	},
-	{
-		"fieldname": "qe_forced_approval_reasons",
-		"label": "Accounts Manager Approval Forced Because",
-		"fieldtype": "Small Text",
-		"insert_after": "qe_last_escalated_on",
-		"depends_on": shown_if("qe_forced_approval_reasons"),
-		**ro(),
-	},
-	{
-		"fieldname": "qe_posting_error",
-		"label": "Posting Error",
-		"fieldtype": "Small Text",
-		"insert_after": "qe_forced_approval_reasons",
-		"depends_on": shown_if("qe_posting_error"),
-		**ro(),
 	},
 	{
 		"fieldname": "qe_cancel_reason",
 		"label": "Cancellation Reason",
 		"fieldtype": "Small Text",
-		"insert_after": "qe_posting_error",
+		"insert_after": "qe_bill_key",
 		"depends_on": shown_if("qe_cancel_reason"),
-		**ro(allow_on_submit=1),
-	},
-	{
-		"fieldname": "qe_approval_chain",
-		"label": "Approval Chain",
-		"fieldtype": "Code",
-		"options": "JSON",
-		"insert_after": "qe_cancel_reason",
-		**ro(hidden=1),
-	},
-	{
-		"fieldname": "qe_approval_history",
-		"label": "Approval History",
-		"fieldtype": "Table",
-		"options": "Quick Expense Approval History",
-		"insert_after": "qe_approval_chain",
 		**ro(allow_on_submit=1),
 	},
 ]
@@ -467,13 +336,15 @@ JOURNAL_ENTRY_ACCOUNT = [
 		"fieldtype": "Data",
 		"insert_after": "qe_item_tax_template",
 	},
+	column("qe_cb_input", "qe_hsn_sac"),
 	{
 		"fieldname": "qe_eligibility",
-		"label": "Eligibility for ITC",
+		"label": "ITC Eligibility",
 		"fieldtype": "Select",
-		"options": "\nAll Other ITC\nIneligible under Section 17(5)\nIneligible Others",
-		"insert_after": "qe_hsn_sac",
-		"description": "Empty = eligible. Food, cab hire, passenger vehicle repair, gifts and staff welfare are usually 17(5).",
+		"options": "All Other ITC\nIneligible under Section 17(5)\nIneligible Others",
+		"default": "All Other ITC",
+		"insert_after": "qe_cb_input",
+		"description": "Change only for blocked credit: food, cab hire, passenger vehicle repair, gifts, staff welfare are 17(5).",
 	},
 	{
 		"fieldname": "qe_eligibility_reason",
@@ -495,7 +366,7 @@ JOURNAL_ENTRY_ACCOUNT = [
 		"fieldtype": "Currency",
 		"options": "INR",
 		"insert_after": "qe_location_of_service_state",
-		"description": "Only if the bill's GST differs from the calculated GST by a few paise.",
+		"hidden": 1,  # set only by imports / API when the bill's GST differs by paise
 	},
 	# calculated by the system (collapsed)
 	{
@@ -566,8 +437,10 @@ JOURNAL_ENTRY_ACCOUNT = [
 
 CUSTOM_FIELDS = {"Journal Entry": JOURNAL_ENTRY, "Journal Entry Account": JOURNAL_ENTRY_ACCOUNT}
 
-# fields of earlier versions that no longer exist (deleted by the v1.3 patch)
+# fields of earlier versions that no longer exist (deleted by the v1.3 / v1.5 patches)
 OBSOLETE_FIELDS = (
 	"Journal Entry-quick_expense_entry",
 	"Journal Entry Account-qe_expense_category",
+	"Journal Entry-qe_is_transporter",
+	"Journal Entry-qe_itc_claim_period_reason",
 )

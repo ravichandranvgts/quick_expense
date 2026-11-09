@@ -1,9 +1,8 @@
-"""Install-time and new-company setup (prompt section 4.3).
+"""Install-time setup: roles, Journal Entry custom fields and permissions, workspace.
 
 Everything here is idempotent: it only adds what is missing and never
-overwrites a value a user has edited. Gaps it cannot fill safely (for example a
-GST rate with no India Compliance Item Tax Template) are reported by the Setup
-Check instead of being guessed.
+overwrites a value a user has edited. Per-company defaults (Company GSTIN, cost
+center, round off account) are read from the Company itself.
 """
 
 import json
@@ -12,15 +11,9 @@ import frappe
 from frappe import _
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.custom.doctype.property_setter.property_setter import make_property_setter
-from frappe.utils import cint, flt, nowdate
+from frappe.utils import nowdate
 
-from quick_expense.constants import (
-	APP_ROLES,
-	DEFAULT_APPROVAL_RULES,
-	JE_VOUCHER_TYPE,
-	ROLE_ACCOUNTS_MANAGER,
-	TAXABLE,
-)
+from quick_expense.constants import APP_ROLES, JE_VOUCHER_TYPE
 from quick_expense.overrides.custom_fields import CUSTOM_FIELDS
 
 SETTINGS = "Quick Expense Settings"
@@ -32,9 +25,6 @@ def after_install():
 
 def after_migrate():
 	setup_all()
-	from quick_expense.overrides.compatibility_guard import check_compatibility
-
-	check_compatibility()
 
 
 def setup_all():
@@ -43,8 +33,6 @@ def setup_all():
 	make_property_setters()
 	grant_journal_entry_permissions()
 	set_settings_defaults()
-	for company in frappe.get_all("Company", filters={"country": "India"}, pluck="name", order_by="creation"):
-		setup_company(company)
 	create_workspace_and_cards()
 	frappe.clear_cache(doctype=SETTINGS)
 
@@ -76,11 +64,13 @@ def make_property_setters():
 
 
 # Journal Entry rights for the Quick Expense roles; the permission hooks in
-# journal_entry_service restrict them to Quick Expense bills only
+# journal_entry_service restrict them to Quick Expense bills only. The Approver
+# posts (submits) the bill; a Frappe Workflow on Journal Entry can add more steps.
 JE_PERMISSIONS = {
 	"Quick Expense User": dict(read=1, write=1, create=1, delete=1, print=1, email=1, report=1),
-	"Quick Expense Approver": dict(read=1, write=1, create=1, delete=1, print=1, email=1, report=1),
-	"Finance Manager": dict(read=1, write=1, print=1, email=1, report=1),
+	"Quick Expense Approver": dict(
+		read=1, write=1, create=1, delete=1, submit=1, cancel=1, amend=1, print=1, email=1, report=1
+	),
 }
 
 
@@ -115,77 +105,6 @@ def set_settings_defaults():
 
 
 # ----------------------------------------------------------------------------
-# per company
-
-
-def setup_company(company: str):
-	from quick_expense.services.gstin_service import get_company_gstins
-
-	settings = frappe.get_single(SETTINGS)
-	company_doc = frappe.get_cached_doc("Company", company)
-
-	if not any(row.company == company for row in settings.company_settings):
-		gstins = get_company_gstins(company)
-		settings.append(
-			"company_settings",
-			{
-				"company": company,
-				"default_company_gstin": gstins[0].gstin if gstins else "",
-				"default_cost_center": company_doc.cost_center,
-				"round_off_account": company_doc.round_off_account,
-			},
-		)
-	for row in settings.company_settings:
-		if row.company == company:
-			row.reverse_charge_accounts = describe_reverse_charge_accounts(company)
-			if not row.default_company_gstin:
-				gstins = get_company_gstins(company)
-				row.default_company_gstin = gstins[0].gstin if gstins else ""
-
-	if not any(row.company == company for row in settings.allowed_accounts):
-		for account in (company_doc.default_cash_account, company_doc.default_bank_account):
-			if account and not frappe.get_cached_value("Account", account, "is_group"):
-				mode = (
-					"Cash" if frappe.get_cached_value("Account", account, "account_type") == "Cash" else None
-				)
-				settings.append(
-					"allowed_accounts",
-					{
-						"company": company,
-						"account": account,
-						"mode_of_payment": mode
-						if mode and frappe.db.exists("Mode of Payment", mode)
-						else None,
-					},
-				)
-
-	if not any(row.company == company for row in settings.approval_rules):
-		for rule in DEFAULT_APPROVAL_RULES:
-			row = {
-				"company": company,
-				"from_amount": rule["from_amount"],
-				"to_amount": rule["to_amount"],
-				"approval_levels_required": str(rule["levels"]),
-			}
-			for level, role in enumerate(rule["roles"], start=1):
-				row[f"level_{level}_role"] = role
-			settings.append("approval_rules", row)
-
-	settings.flags.ignore_permissions = True
-	settings.flags.from_setup = True
-	settings.save()
-
-
-def describe_reverse_charge_accounts(company) -> str:
-	from india_compliance.gst_india.utils import get_gst_accounts_by_type
-
-	accounts = get_gst_accounts_by_type(company, "Purchase Reverse Charge", throw=False)
-	return "\n".join(
-		f"{key.replace('_account', '').upper()}: {value}" for key, value in accounts.items() if value
-	)
-
-
-# ----------------------------------------------------------------------------
 # workspace
 
 
@@ -200,7 +119,7 @@ NUMBER_CARDS = [
 		"qe_total_ineligible_gst",
 		[QE, ["docstatus", "=", 1], THIS_MONTH],
 	),
-	("Quick Expense Pending Approval", "Count", None, [QE, ["qe_approval_status", "=", "Pending Approval"]]),
+	("Quick Expense Drafts", "Count", None, [QE, ["docstatus", "=", 0]]),
 	(
 		"Quick Expense Pending 2B",
 		"Count",
@@ -301,134 +220,3 @@ def create_workspace_and_cards():
 	)
 	workspace.flags.ignore_links = True
 	workspace.insert(ignore_permissions=True)
-
-
-# ----------------------------------------------------------------------------
-# Setup Check
-
-
-@frappe.whitelist()
-def run_setup_check():
-	frappe.only_for(("Accounts Manager", "System Manager"))
-	issues = get_setup_issues()
-	frappe.db.set_single_value(SETTINGS, "setup_check_result", json.dumps(issues))
-	return issues
-
-
-def get_setup_issues() -> list[dict]:
-	from india_compliance.gst_india.utils import get_gst_accounts_by_type, is_api_enabled
-
-	from quick_expense.services.approval_service import get_users_for_step
-	from quick_expense.services.gstin_service import get_company_gstins
-	from quick_expense.services.tax_engine import get_template_for_rate
-
-	settings = frappe.get_single(SETTINGS)
-	issues = []
-
-	def add(company, gstin, area, message, link=None):
-		issues.append(
-			{"company": company, "gstin": gstin or "", "area": area, "message": message, "link": link}
-		)
-
-	if not is_api_enabled():
-		add(
-			"",
-			"",
-			_("GSTIN API"),
-			_(
-				"India Compliance API is not enabled. Supplier names will have to be typed manually and those entries need approval."
-			),
-			"/app/gst-settings",
-		)
-	if cint(settings.overrides_disabled):
-		add(
-			"",
-			"",
-			_("Journal Entry mode"),
-			settings.overrides_disabled_reason
-			or _("Report overrides are switched off by the compatibility guard."),
-		)
-
-	for company in frappe.get_all("Company", filters={"country": "India"}, pluck="name"):
-		gstins = get_company_gstins(company)
-		if not gstins:
-			add(
-				company,
-				"",
-				_("Company GSTIN"),
-				_("No GST address with a GSTIN is linked to the company."),
-				"/app/address/new",
-			)
-		if not any(row.company == company for row in settings.company_settings):
-			add(
-				company,
-				"",
-				_("Company Settings"),
-				_("No Company Settings row. Save the company again or run migrate."),
-			)
-		if not any(row.company == company for row in settings.allowed_accounts):
-			add(
-				company,
-				"",
-				_("Cash and Bank"),
-				_("No Allowed Cash or Bank account."),
-				"/app/quick-expense-settings",
-			)
-		for account_type in ("Input", "Purchase Reverse Charge"):
-			accounts = get_gst_accounts_by_type(company, account_type, throw=False)
-			if not accounts or not (
-				accounts.get("cgst_account") and accounts.get("sgst_account") and accounts.get("igst_account")
-			):
-				add(
-					company,
-					"",
-					_("GST Accounts"),
-					_("{0} CGST / SGST / IGST accounts are not set in GST Settings.").format(account_type),
-					"/app/gst-settings",
-				)
-		if not (frappe.get_cached_value("Company", company, "round_off_account")):
-			add(
-				company, "", _("Round Off"), _("Company has no Round Off Account."), f"/app/company/{company}"
-			)
-
-		for treatment, rate in (
-			(TAXABLE, 5),
-			(TAXABLE, 18),
-			("Exempted", 0),
-			("Nil-Rated", 0),
-			("Non-GST", 0),
-		):
-			if not get_template_for_rate(company, rate, treatment):
-				add(
-					company,
-					"",
-					_("Item Tax Template"),
-					_("No Item Tax Template for {0}.").format(
-						_("GST {0}%").format(rate) if treatment == TAXABLE else treatment
-					),
-					"/app/item-tax-template/new",
-				)
-
-		rules = [r for r in settings.approval_rules if r.company == company]
-		if cint(settings.approval_required) and not rules:
-			add(company, "", _("Approval"), _("No approval rules."))
-		probe = frappe.new_doc("Journal Entry")
-		probe.update({"company": company, "owner": "Administrator", "voucher_type": JE_VOUCHER_TYPE})
-		steps = {
-			(r.get(f"level_{level}_role") or "", r.get(f"level_{level}_user") or "")
-			for r in rules
-			for level in range(1, cint(r.approval_levels_required) + 1)
-		}
-		steps.add((ROLE_ACCOUNTS_MANAGER, ""))
-		for gstin_row in gstins or [frappe._dict(gstin="")]:
-			probe.company_gstin = gstin_row.gstin
-			for role, user in sorted(steps):
-				if not get_users_for_step(probe, {"role": role, "user": user}):
-					add(
-						company,
-						gstin_row.gstin,
-						_("Approvers"),
-						_("Nobody can approve as {0}.").format(user or role),
-						"/app/user",
-					)
-	return issues

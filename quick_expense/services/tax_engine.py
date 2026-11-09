@@ -28,6 +28,7 @@ from quick_expense.constants import (
 	REASON_UNREGISTERED,
 	REGISTERED,
 	SEZ,
+	TAX_DIFFERENCE_TOLERANCE,
 	TAXABLE,
 	UNREGISTERED,
 	ZERO_TAX_TREATMENTS,
@@ -204,11 +205,11 @@ def is_inter_state(doc) -> bool:
 
 
 def calculate(doc, categories: dict, *, time_limit_expired: bool = False, settings=None) -> list[str]:
-	"""Recalculate every line and the totals in place. Returns the list of
-	approval-forcing reasons raised by the tax rules (tolerance used, etc.)."""
+	"""Recalculate every line and the totals in place. Returns notes for the user
+	raised by the tax rules (rounding difference accepted, etc.)."""
 
 	settings = settings or frappe.get_cached_doc("Quick Expense Settings")
-	tolerance = flt(settings.tax_difference_tolerance)
+	tolerance = TAX_DIFFERENCE_TOLERANCE
 	reasons = []
 
 	chargeable = is_gst_chargeable(doc)

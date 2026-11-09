@@ -3,23 +3,10 @@
 ROLE_USER = "Quick Expense User"
 ROLE_APPROVER = "Quick Expense Approver"
 ROLE_ACCOUNTS_MANAGER = "Accounts Manager"
-ROLE_FINANCE_MANAGER = "Finance Manager"
-APP_ROLES = (ROLE_USER, ROLE_APPROVER, ROLE_ACCOUNTS_MANAGER, ROLE_FINANCE_MANAGER)
+APP_ROLES = (ROLE_USER, ROLE_APPROVER, ROLE_ACCOUNTS_MANAGER)
 
 # Every entry posts as a Journal Entry of this voucher type
 JE_VOUCHER_TYPE = "Quick Expense"
-
-# approval statuses
-DRAFT = "Draft"
-PENDING = "Pending Approval"
-APPROVED = "Approved"
-POSTED = "Posted"
-REJECTED = "Rejected"
-POSTING_FAILED = "Approved - Posting Failed"
-CANCELLED = "Cancelled"
-EDITABLE_STATUSES = (DRAFT, REJECTED)
-# statuses whose cash counts toward the per-person cash limit
-LIVE_STATUSES = (PENDING, APPROVED, POSTED, POSTING_FAILED)
 
 # GST treatment of the supplier (header)
 REGISTERED = "Registered Regular"
@@ -66,38 +53,12 @@ ZERO_TAX_TREATMENTS = (NIL_RATED, EXEMPTED, NON_GST_ITEM)
 GSTIN_FILLED_SOURCES = ("API", "Supplier Master")
 GSTIN_STATUS_BLOCKING = ("Cancelled", "Suspended", "Inactive")
 
-# Journal Entry fields a user may change while the bill is in approval
-APPROVER_EDITABLE_FIELDS = ("user_remark",)
-APPROVER_EDITABLE_ROW_FIELDS = ("cost_center", "project", "user_remark")
-ACCOUNTS_MANAGER_EDITABLE_ROW_FIELDS = (
-	*APPROVER_EDITABLE_ROW_FIELDS,
-	"qe_eligibility",
-	"qe_eligibility_reason",
-)
-# changing any of these sends the bill back to approval level 1
-AMOUNT_ROW_FIELDS = (
-	"account",
-	"qe_taxable_amount",
-	"qe_item_tax_template",
-	"qe_gst_as_per_bill",
-	"qe_location_of_service_state",
-)
+# GST on the bill may differ from the calculated GST by this much (rounding on the bill)
+TAX_DIFFERENCE_TOLERANCE = 1.0
 
 # system rows of a Quick Expense Journal Entry (qe_gst_component); everything else is an expense row
 EXPENSE_ROW = "Expense"
 SYSTEM_COMPONENTS = ("CGST", "SGST", "IGST", "Cess", "Reverse Charge Liability", "Round Off", "Payment")
-
-# Default approval matrix (prompt section 13.3)
-DEFAULT_APPROVAL_RULES = [
-	dict(from_amount=0, to_amount=5000, levels=1, roles=(ROLE_APPROVER,)),
-	dict(from_amount=5000.01, to_amount=25000, levels=2, roles=(ROLE_APPROVER, ROLE_ACCOUNTS_MANAGER)),
-	dict(
-		from_amount=25000.01,
-		to_amount=50000,
-		levels=3,
-		roles=(ROLE_APPROVER, ROLE_ACCOUNTS_MANAGER, ROLE_FINANCE_MANAGER),
-	),
-]
 
 # SAC codes (services) start with 99; HSN codes of goods do not
 SERVICE_HSN_PREFIX = "99"

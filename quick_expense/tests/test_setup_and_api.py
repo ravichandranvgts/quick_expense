@@ -1,6 +1,4 @@
-"""Install / new-company setup, Setup Check, migration, API and print formats."""
-
-import json
+"""Install setup, migration, API and print formats."""
 
 import frappe
 from frappe.utils import today
@@ -10,6 +8,7 @@ from quick_expense.services import setup_service
 from quick_expense.tests.utils import (
 	COMPANY,
 	COMPANY_2,
+	COMPANY_2_GSTIN,
 	SUPPLIER_TN,
 	TN_GSTIN,
 	QETestCase,
@@ -30,20 +29,29 @@ class TestSetup(QETestCase):
 			self.assertFalse(frappe.db.exists("DocType", doctype), doctype)
 		self.assertFalse(frappe.get_all("Report", filters={"module": "Quick Expense"}))
 
-	def test_company_rows_and_rules(self):
-		settings = frappe.get_single("Quick Expense Settings")
-		for company in (COMPANY, COMPANY_2):
-			self.assertEqual(len([r for r in settings.approval_rules if r.company == company]), 3)
-			self.assertEqual(len([r for r in settings.company_settings if r.company == company]), 1)
-			self.assertTrue([r for r in settings.allowed_accounts if r.company == company])
+	def test_approval_and_settings_tables_are_gone(self):
+		for doctype in (
+			"Quick Expense Approval History",
+			"Quick Expense Approval Rule",
+			"Quick Expense Company Setting",
+			"Quick Expense Allowed Account",
+			"Quick Expense User Default",
+			"Quick Expense GST Lock Date",
+		):
+			self.assertFalse(frappe.db.exists("DocType", doctype), doctype)
+		meta = frappe.get_meta("Journal Entry")
+		for field in ("qe_approval_status", "qe_approval_history", "qe_warnings"):
+			self.assertFalse(meta.has_field(field), field)
+		self.assertEqual(
+			[f.fieldname for f in frappe.get_meta("Quick Expense Settings").fields if f.fieldtype == "Check"],
+			["enable_quick_expense", "round_grand_total", "use_gstin_api", "monthly_2b_follow_up_email"],
+		)
 
 	def test_journal_entry_is_set_up(self):
 		meta = frappe.get_meta("Journal Entry")
 		self.assertIn("Quick Expense", meta.get_field("voucher_type").options.split("\n"))
 		for field in (
 			"qe_paid_through_account",
-			"qe_approval_status",
-			"qe_approval_history",
 			"reconciliation_status",
 			"qe_grand_total",
 		):
@@ -55,16 +63,22 @@ class TestSetup(QETestCase):
 			)
 		}
 		self.assertTrue({"Quick Expense User", "Quick Expense Approver"} <= roles)
+		submitters = {
+			row.role
+			for row in frappe.get_all(
+				"Custom DocPerm", filters={"parent": "Journal Entry", "submit": 1}, fields=["role"]
+			)
+		}
+		self.assertIn("Quick Expense Approver", submitters)
+		self.assertNotIn("Quick Expense User", submitters)
 
 	def test_rerun_creates_no_duplicates(self):
 		counts = lambda: {
 			dt: frappe.db.count(dt) for dt in ("Custom Field", "Number Card", "Workspace", "Custom DocPerm")
 		}
-		rules_before = len(frappe.get_single("Quick Expense Settings").approval_rules)
 		before = counts()
 		setup_service.setup_all()
 		self.assertEqual(before, counts())
-		self.assertEqual(len(frappe.get_single("Quick Expense Settings").approval_rules), rules_before)
 
 	def test_workspace_points_to_india_compliance(self):
 		workspace = frappe.get_doc("Workspace", "Quick Expense")
@@ -79,38 +93,6 @@ class TestSetup(QETestCase):
 			},
 			{"Journal Entry"},
 		)
-
-	def test_new_company_is_set_up_automatically(self):
-		company = frappe.get_doc(
-			{
-				"doctype": "Company",
-				"company_name": "_QE New Company",
-				"abbr": "QEN",
-				"country": "India",
-				"default_currency": "INR",
-				"chart_of_accounts": "Standard",
-			}
-		).insert()
-		settings = frappe.get_single("Quick Expense Settings")
-		self.assertTrue(any(r.company == company.name for r in settings.company_settings))
-		self.assertEqual(len([r for r in settings.approval_rules if r.company == company.name]), 3)
-
-	def test_setup_check_reports_missing_template(self):
-		frappe.db.set_value(
-			"Item Tax Template",
-			{"company": COMPANY, "gst_rate": 5, "gst_treatment": "Taxable"},
-			"disabled",
-			1,
-		)
-		frappe.local.request_cache.clear()
-		issues = setup_service.get_setup_issues()
-		self.assertTrue(any(i["company"] == COMPANY and "GST 5" in i["message"] for i in issues), issues)
-
-	def test_setup_check_reports_missing_approvers(self):
-		frappe.db.delete("Has Role", {"role": "Finance Manager", "parent": user("fm")})
-		frappe.clear_cache(user=user("fm"))
-		issues = setup_service.get_setup_issues()
-		self.assertTrue(any(i["area"] == "Approvers" and "Finance Manager" in i["message"] for i in issues))
 
 	def test_follow_up_list(self):
 		from quick_expense.services.reconciliation_service import get_follow_up_entries
@@ -131,24 +113,12 @@ class TestAPI(QETestCase):
 		details = api.get_gstin_details(SUPPLIER_TN, COMPANY, TN_GSTIN)
 		self.assertEqual((details["valid"], details["source"], len(details["addresses"])), (1, "API", 2))
 
-	def test_submit_approve_reject_via_api(self):
-		entry = self.make_entry()
-		with as_(user("user")):
-			self.assertEqual(api.submit_for_approval(entry.name)["approval_status"], "Pending Approval")
-		with as_(user("approver")):
-			self.assertEqual(api.approve(entry.name, "ok")["approval_status"], "Posted")
-		second = self.make_entry()
-		api.submit_for_approval(second.name)
-		with as_(user("approver")):
-			self.assertEqual(api.reject(second.name, "duplicate photo")["approval_status"], "Rejected")
-
-	def test_entry_defaults(self):
+	def test_entry_defaults_come_from_the_company(self):
 		defaults = api.get_entry_defaults(COMPANY)
-		self.assertEqual(defaults["company_gstin"], TN_GSTIN)
-		self.assertIn(
-			frappe.db.get_value("Account", {"company": COMPANY, "account_type": "Cash", "is_group": 0}),
-			defaults["allowed_accounts"],
-		)
+		self.assertEqual(defaults["company_gstin"], TN_GSTIN)  # the primary GST address
+		self.assertEqual(defaults["cost_center"], frappe.get_cached_value("Company", COMPANY, "cost_center"))
+		self.assertEqual(self.make_entry(company_gstin="").company_gstin, TN_GSTIN)
+		self.assertEqual(api.get_entry_defaults(COMPANY_2)["company_gstin"], COMPANY_2_GSTIN)
 
 	def test_last_gst_rate_of_supplier(self):
 		self.assertIsNone(api.get_last_gst_rate(COMPANY, SUPPLIER_TN))
@@ -162,12 +132,6 @@ class TestAPI(QETestCase):
 		self.assertFalse(
 			[r for r in entry.je.accounts if r.qe_gst_component == "Payment" and r.qe_item_tax_template]
 		)
-
-	def test_bulk_approve(self):
-		names = [self.submit(self.make_entry()).name for _ in range(2)]
-		with as_(user("approver")):
-			result = api.bulk_approve(json.dumps(names))
-		self.assertTrue(all(row["ok"] for row in result), result)
 
 	def test_not_a_quick_expense_journal_entry(self):
 		je = frappe.get_doc(
@@ -188,7 +152,7 @@ class TestAPI(QETestCase):
 			}
 		).insert()
 		with self.assertRaisesRegex(frappe.ValidationError, "not a Quick Expense"):
-			api.submit_for_approval(je.name)
+			api.cancel_with_reason(je.name, "test")
 
 
 class TestPrint(QETestCase):
@@ -203,7 +167,7 @@ class TestPrint(QETestCase):
 		)
 		voucher = frappe.get_print("Journal Entry", entry.name, print_format="Quick Expense Voucher")
 		self.assertIn("Lorry Owner", voucher)
-		self.assertIn("Approval History", voucher)
+		self.assertIn("Prepared By", voucher)
 		self_invoice = frappe.get_print(
 			"Journal Entry", entry.name, print_format="Quick Expense Self Invoice"
 		)

@@ -30,7 +30,7 @@ def supplier_addresses(supplier):
 class TestSupplierOnboarding(QETestCase):
 	def posted_je(self, **values):
 		entry = self.post(self.make_entry(**values))
-		self.assertEqual(entry.approval_status, "Posted", entry.posting_error)
+		self.assertEqual(entry.docstatus, 1)
 		return entry.linked_journal_entry
 
 	def test_supplier_with_all_gstin_details(self):

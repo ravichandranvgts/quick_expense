@@ -1,24 +1,4 @@
-// Loaded on India Compliance's GSTR 3B Report, Purchase Reconciliation Tool and IMS.
-
-// Red banner when the compatibility guard has switched the Quick Expense overrides off.
-["GSTR 3B Report", "Purchase Reconciliation Tool", "GST Invoice Management System"].forEach((doctype) => {
-	frappe.ui.form.on(doctype, {
-		refresh(frm) {
-			frappe.db
-				.get_value("Quick Expense Settings", "Quick Expense Settings", "overrides_disabled")
-				.then(({ message }) => {
-					if (message && Number(message.overrides_disabled)) {
-						frm.dashboard.set_headline_alert(
-							__(
-								"Quick Expense Journal Entries are NOT included: the compatibility self-test failed after an India Compliance update. Check Quick Expense Settings.",
-							),
-							"red",
-						);
-					}
-				});
-		},
-	});
-});
+// Loaded on India Compliance's Purchase Reconciliation Tool and IMS.
 
 // Purchase Reconciliation Tool and IMS: Quick Expense bills are Journal Entries, so offer
 // "Journal Entry" in the Link dialog and pre-select it for an invoice found only in 2B.

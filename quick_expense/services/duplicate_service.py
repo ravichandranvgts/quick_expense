@@ -1,9 +1,8 @@
 """Unique bill key (prompt section 12.1), kept on the Journal Entry itself.
 
 Key = Company GSTIN + Supplier GSTIN + normalised Supplier Invoice No + GST
-financial year of the invoice date, stored in ``qe_bill_key``. A bill holds its
-key while it is in approval or posted; drafts, rejected and cancelled bills do
-not. Two users submitting the same bill at the same moment are serialised by a
+financial year of the invoice date, stored in ``qe_bill_key``. Only a submitted
+bill holds its key; drafts and cancelled bills do not. Two users submitting the same bill at the same moment are serialised by a
 database named lock on the key, so the second one sees the first and is refused.
 """
 
@@ -14,7 +13,7 @@ from frappe import _
 from frappe.utils import flt
 from pypika.functions import Replace, Upper
 
-from quick_expense.constants import JE_VOUCHER_TYPE, LIVE_STATUSES
+from quick_expense.constants import JE_VOUCHER_TYPE
 from quick_expense.services.tax_engine import gst_financial_year, gst_financial_year_label
 
 
@@ -34,14 +33,13 @@ def build_key(company_gstin, supplier_gstin, invoice_no, invoice_date) -> str | 
 
 
 def get_holder(key: str, exclude: str | None = None) -> str | None:
-	"""Another Quick Expense Journal Entry, in approval or posted, that holds the key."""
+	"""Another submitted Quick Expense Journal Entry that holds the key."""
 	return frappe.db.get_value(
 		"Journal Entry",
 		{
 			"voucher_type": JE_VOUCHER_TYPE,
 			"qe_bill_key": key,
-			"docstatus": ("<", 2),
-			"qe_approval_status": ("in", LIVE_STATUSES),
+			"docstatus": 1,
 			"name": ("!=", exclude or ""),
 		},
 		"name",
@@ -128,10 +126,6 @@ def reserve(doc) -> None:
 		raise_duplicate(doc, holder)
 
 
-def release(doc) -> None:
-	"""Nothing to delete: a bill stops holding its key as soon as it leaves approval."""
-
-
 # ----------------------------------------------------------------------------
 # warnings (do not block)
 
@@ -143,11 +137,10 @@ def unregistered_duplicate_warning(doc) -> str | None:
 	filters = {
 		"voucher_type": JE_VOUCHER_TYPE,
 		"name": ("!=", doc.name or ""),
-		"docstatus": ("<", 2),
+		"docstatus": 1,
 		"company": doc.company,
 		"qe_supplier_legal_name": doc.supplier_legal_name,
 		"qe_grand_total": flt(doc.grand_total, 2),
-		"qe_approval_status": ("in", LIVE_STATUSES),
 	}
 	if doc.supplier_invoice_no:
 		filters["qe_supplier_invoice_no"] = doc.supplier_invoice_no

@@ -1,17 +1,8 @@
 // Quick Expense bill on the Journal Entry form (voucher type "Quick Expense").
 // The user types the supplier, the bill and one row per expense; saving adds the
-// GST, reverse charge, round off and cash / bank rows. The bill is submitted by
-// the approval engine, never with the standard Submit button.
+// GST, reverse charge, round off and cash / bank rows. The bill is posted with the
+// standard Submit button, or through a Frappe Workflow set up on Journal Entry.
 
-const QE_STATUS_COLOURS = {
-	Draft: "gray",
-	"Pending Approval": "orange",
-	Approved: "blue",
-	Posted: "green",
-	Rejected: "red",
-	"Approved - Posting Failed": "red",
-	Cancelled: "red",
-};
 const QE_STATES = [
 	"Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chandigarh",
 	"Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Goa", "Gujarat", "Haryana",
@@ -34,6 +25,7 @@ frappe.ui.form.on("Journal Entry", {
 	},
 
 	refresh(frm) {
+		qe_grid_columns(frm);
 		if (frm.doc.voucher_type !== "Quick Expense") return;
 		qe_setup_form(frm);
 		qe_buttons(frm);
@@ -42,6 +34,7 @@ frappe.ui.form.on("Journal Entry", {
 	},
 
 	voucher_type(frm) {
+		qe_grid_columns(frm);
 		if (frm.doc.voucher_type !== "Quick Expense") return;
 		if (!frm.doc.qe_gst_treatment) frm.set_value("qe_gst_treatment", "Registered Regular");
 		frm.trigger("company");
@@ -55,19 +48,19 @@ frappe.ui.form.on("Journal Entry", {
 			args: { company: frm.doc.company },
 			callback({ message }) {
 				if (!message) return;
-				frm.__qe_allowed_accounts = message.allowed_accounts;
+				frm.__qe_defaults_loaded = true;
 				frm.set_df_property("company_gstin", "options", (message.company_gstins || []).join("\n"));
 				if (frm.doc.docstatus !== 0) return;
 				if (!frm.doc.company_gstin && message.company_gstin) frm.set_value("company_gstin", message.company_gstin);
-				// the cash / bank account is a row in the table; the system fills its amount on save
-				const has_payment = (frm.doc.accounts || []).some((row) => row.qe_gst_component === "Payment" || (frm.__qe_allowed_accounts || []).includes(row.account));
-				if (!has_payment && message.paid_through_account) {
-					const row = frm.add_child("accounts", { account: message.paid_through_account, qe_gst_component: "Payment" });
-					frm.refresh_field("accounts");
-					frappe.show_alert({ message: __("Cash / bank row {0} added; its amount is filled on save.", [row.account]), indicator: "blue" }, 5);
-				}
 			},
 		});
+	},
+
+	// the ITC claim period is the posting month (read-only; IMS may move a submitted bill)
+	posting_date(frm) {
+		if (frm.doc.voucher_type !== "Quick Expense" || frm.doc.docstatus !== 0 || !frm.doc.posting_date) return;
+		const [year, month] = frm.doc.posting_date.split("-");
+		frm.set_value("qe_itc_claim_period", `${month}${year}`);
 	},
 
 	qe_gst_treatment(frm) {
@@ -161,7 +154,7 @@ frappe.ui.form.on("Journal Entry Account", {
 	account(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
 		if (frm.doc.voucher_type !== "Quick Expense" || row.qe_gst_component || row.qe_item_tax_template) return;
-		if (!row.account || !frm.doc.qe_supplier_gstin || frm.__qe_allowed_accounts?.includes(row.account)) return;
+		if (!row.account || !frm.doc.qe_supplier_gstin) return; // the server skips a cash / bank account
 		frappe
 			.xcall("quick_expense.api.get_last_gst_rate", {
 				company: frm.doc.company,
@@ -183,70 +176,51 @@ frappe.ui.form.on("Journal Entry Account", {
 	},
 });
 
-function qe_setup_form(frm) {
-	frm.fields_dict.accounts.grid.update_docfield_property("qe_location_of_service_state", "options", QE_STATES.join("\n"));
-	if (frm.doc.company && !frm.__qe_allowed_accounts) frm.trigger("company");
+// In a Quick Expense bill the user types Account, Taxable Amount and GST Rate in the table;
+// Debit / Credit are worked out on save (taxable + ineligible GST, GST rows, the cash / bank row).
+const QE_GRID_INPUTS = { qe_taxable_amount: 2, qe_item_tax_template: 2 };
+
+function qe_grid_columns(frm) {
+	const grid = frm.fields_dict.accounts.grid;
+	const qe = frm.doc.voucher_type === "Quick Expense";
+	if (grid.__qe_mode === qe) return;
+	grid.__qe_mode = qe;
+	Object.entries(QE_GRID_INPUTS).forEach(([field, columns]) => {
+		grid.update_docfield_property(field, "in_list_view", qe ? 1 : 0);
+		grid.update_docfield_property(field, "columns", columns);
+	});
+	["party_type", "party"].forEach((field) => grid.update_docfield_property(field, "in_list_view", qe ? 0 : 1));
+	["debit_in_account_currency", "credit_in_account_currency"].forEach((field) => grid.update_docfield_property(field, "read_only", qe ? 1 : 0));
+	grid.reset_grid();
 }
 
-function qe_editable(frm) {
-	return frm.doc.docstatus === 0 && ["", "Draft", "Rejected", undefined, null].includes(frm.doc.qe_approval_status);
+function qe_setup_form(frm) {
+	frm.fields_dict.accounts.grid.update_docfield_property("qe_location_of_service_state", "options", QE_STATES.join("\n"));
+	if (frm.doc.company && !frm.__qe_defaults_loaded) frm.trigger("company");
 }
 
 function qe_buttons(frm) {
-	const info = (frm.doc.__onload && frm.doc.__onload.quick_expense) || {};
-	const status = frm.doc.qe_approval_status || "Draft";
-	const call = (method, args, message) =>
-		frappe
-			.call({ method: `quick_expense.api.${method}`, args: { name: frm.doc.name, ...args }, freeze: true, freeze_message: message })
-			.then(() => frm.reload_doc());
-
-	if (frm.doc.docstatus === 0) {
-		frm.page.clear_primary_action();
-		if (!frm.is_new() && qe_editable(frm) && !frm.is_dirty()) {
-			frm.page.set_primary_action(__("Submit for Approval"), () => call("submit_for_approval", {}, __("Submitting...")));
-		} else {
-			frm.page.set_primary_action(__("Save"), () => frm.save());
-		}
-	}
-	if (status === "Pending Approval" && !info.approval_block_reason) {
-		frm.add_custom_button(__("Approve"), () =>
-			frappe.prompt(
-				[{ fieldname: "comment", fieldtype: "Small Text", label: __("Comment (optional)") }],
-				(v) => call("approve", { comment: v.comment }, __("Approving...")),
-				__("Approve {0}", [frm.doc.name]),
-				__("Approve"),
-			),
-		).addClass("btn-primary qe-big-button");
-	}
-	if ((status === "Pending Approval" && !info.approval_block_reason) || (status === "Approved - Posting Failed" && info.is_accounts_manager)) {
-		frm.add_custom_button(__("Reject"), () =>
-			frappe.prompt(
-				[{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason for rejection"), reqd: 1 }],
-				(v) => call("reject", { reason: v.reason }, __("Rejecting...")),
-				__("Reject {0}", [frm.doc.name]),
-				__("Reject"),
-			),
-		).addClass("btn-danger qe-big-button");
-	}
-	if (status === "Approved - Posting Failed" && info.is_accounts_manager) {
-		frm.add_custom_button(__("Retry Posting"), () => call("retry_posting", {}, __("Posting..."))).addClass("btn-primary");
-	}
-	if (frm.doc.docstatus === 1) {
-		frm.add_custom_button(__("Cancel with Reason"), () =>
-			frappe.prompt(
-				[{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason"), reqd: frm.doc.reconciliation_status === "Reconciled" }],
-				(v) => call("cancel_with_reason", { reason: v.reason }, __("Cancelling...")),
-				__("Cancel {0}", [frm.doc.name]),
-				__("Cancel Bill"),
-			),
-		);
-	}
-	if (status === "Pending Approval" && info.approval_block_reason) frm.dashboard.add_comment(info.approval_block_reason, "blue", true);
+	if (frm.doc.docstatus !== 1) return;
+	// a bill matched with GSTR-2B needs a reason to cancel; the reconciliation link is reset
+	frm.add_custom_button(__("Cancel with Reason"), () =>
+		frappe.prompt(
+			[{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason"), reqd: frm.doc.reconciliation_status === "Reconciled" }],
+			(v) =>
+				frappe
+					.call({
+						method: "quick_expense.api.cancel_with_reason",
+						args: { name: frm.doc.name, reason: v.reason },
+						freeze: true,
+						freeze_message: __("Cancelling..."),
+					})
+					.then(() => frm.reload_doc()),
+			__("Cancel {0}", [frm.doc.name]),
+			__("Cancel Bill"),
+		),
+	);
 }
 
 function qe_headline(frm) {
-	const status = frm.doc.qe_approval_status || "Draft";
-	if (frm.doc.docstatus === 0) frm.page.set_indicator(__(status), QE_STATUS_COLOURS[status] || "gray");
 	const esc = frappe.utils.escape_html;
 	const parts = [];
 	if (frm.doc.qe_grand_total) {
@@ -255,15 +229,7 @@ function qe_headline(frm) {
 				` &nbsp; <b>${__("Eligible ITC")}:</b> ${format_currency(frm.doc.qe_total_eligible_itc, "INR")} &nbsp; <b>${__("Paid")}:</b> ${format_currency(frm.doc.qe_grand_total, "INR")}`,
 		);
 	}
-	if (status === "Pending Approval" && frm.doc.qe_approval_levels_required) {
-		parts.push(`<b>${__("Level")}:</b> ${frm.doc.qe_approval_level} / ${frm.doc.qe_approval_levels_required} (${esc(frm.doc.qe_current_approver_user || frm.doc.qe_current_approver_role || "")})`);
-	}
 	if (frm.doc.docstatus === 1 && frm.doc.reconciliation_status) parts.push(`<b>${__("GSTR-2B")}:</b> ${esc(__(frm.doc.reconciliation_status))}`);
-	if (frm.doc.qe_posting_error) parts.push(`<span class="text-danger"><b>${__("Posting error")}:</b> ${esc(frm.doc.qe_posting_error)}</span>`);
-	const forced = (frm.doc.qe_forced_approval_reasons || "").split("\n").filter(Boolean);
-	if (forced.length) parts.push(`<b>${__("Accounts Manager approval needed")}:</b> ${forced.map(esc).join("; ")}`);
-	const warnings = (frm.doc.qe_warnings || "").split("\n").filter(Boolean);
-	if (warnings.length) parts.push(`<span class="text-warning">${warnings.map(esc).join("<br>")}</span>`);
 	if (parts.length) frm.dashboard.set_headline(`<div class="qe-headline">${parts.join("<br>")}</div>`);
 }
 

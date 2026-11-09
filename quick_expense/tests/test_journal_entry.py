@@ -1,5 +1,5 @@
 """Journal Entry posting, India Compliance reports, 2A / 2B reconciliation in India
-Compliance's Purchase Reconciliation Tool, compatibility guard, cancel / amend
+Compliance's Purchase Reconciliation Tool, cancel / amend
 (prompt sections 9, 10, 11; test cases 1, 3-9, 17, 18, 20-22)."""
 
 import json
@@ -8,7 +8,7 @@ from unittest.mock import patch
 import frappe
 from frappe.utils import flt, get_first_day, get_last_day, getdate, today
 
-from quick_expense.overrides import compatibility_guard, ic_reports
+from quick_expense.overrides import ic_reports
 from quick_expense.tests.utils import (
 	COMPANY,
 	KA_GSTIN,
@@ -81,17 +81,16 @@ class TestJournalEntryPosting(QETestCase):
 		entry = self.post(
 			self.make_entry(lines=[dict(expense_category="Courier and Postage Charges", taxable_amount=1000)])
 		)
-		self.assertEqual(entry.approval_status, "Posted", entry.posting_error)
+		self.assertEqual(entry.docstatus, 1)
 		je = frappe.get_doc("Journal Entry", entry.linked_journal_entry)
 		self.assertEqual(
 			(
 				je.voucher_type,
 				je.docstatus,
 				je.company_gstin,
-				je.qe_approval_status,
 				je.reconciliation_status,
 			),
-			("Quick Expense", 1, TN_GSTIN, "Posted", "Unreconciled"),
+			("Quick Expense", 1, TN_GSTIN, "Unreconciled"),
 		)
 		rows = je_rows(je.name)
 		self.assertEqual(rows[("QE Courier - QET", "Expense")], 1000)
@@ -101,9 +100,7 @@ class TestJournalEntryPosting(QETestCase):
 		self.assertFalse(any(row.party for row in je.accounts))  # no supplier record (test case 3)
 		self.assertFalse(frappe.db.exists("Supplier", {"gstin": SUPPLIER_TN}))
 		self.assertFalse(frappe.db.exists("Purchase Invoice", {"bill_no": entry.supplier_invoice_no}))
-		self.assertEqual(
-			(entry.approval_status, je.qe_grand_total, je.qe_total_eligible_itc), ("Posted", 1180, 180)
-		)
+		self.assertEqual((entry.docstatus, je.qe_grand_total, je.qe_total_eligible_itc), (1, 1180, 180))
 
 	def test_unregistered_bill_needs_no_2b(self):
 		entry = self.post(
@@ -142,7 +139,7 @@ class TestJournalEntryPosting(QETestCase):
 				lines=[dict(expense_category="Software and Online Subscriptions", taxable_amount=5000)],
 			)
 		)
-		self.assertEqual(entry.approval_status, "Posted", entry.posting_error)
+		self.assertEqual(entry.docstatus, 1)
 		rows = je_rows(entry.linked_journal_entry)
 		self.assertEqual(rows[("Input Tax IGST - QET", "IGST")], 900)
 		self.assertEqual(rows[("Input Tax IGST RCM - QET", "Reverse Charge Liability")], -900)
@@ -166,31 +163,30 @@ class TestJournalEntryPosting(QETestCase):
 		)
 		self.assertEqual(je_rows(entry.linked_journal_entry)[("Round Off - QET", "Round Off")], 1)
 
-	def test_posting_failure_rolls_back_and_retries(self):
-		entry = self.submit(self.make_entry())
+	def test_posting_failure_leaves_a_draft(self):
+		entry = self.make_entry()
 		with patch(
 			"quick_expense.services.journal_entry_service.needs_2b",
 			side_effect=frappe.ValidationError("ledger locked"),
 		):
-			entry = self.approve_all(entry)
-		self.assertEqual((entry.approval_status, entry.docstatus), ("Approved - Posting Failed", 0))
-		self.assertIn("ledger locked", entry.posting_error)
+			with self.assertRaisesRegex(frappe.ValidationError, "ledger locked"):
+				self.submit(entry)
+		self.assertEqual(frappe.db.get_value("Journal Entry", entry.name, "docstatus"), 0)
 		self.assertFalse(frappe.db.exists("GL Entry", {"voucher_no": entry.name}))
-		with as_(user("approver")):
-			with self.assertRaisesRegex(frappe.ValidationError, "Only an Accounts Manager"):
-				self.bill(entry.name).retry_posting()
-		with as_(user("am")):
-			self.bill(entry.name).retry_posting()
-		self.assertEqual(
-			(self.bill(entry.name).approval_status, self.bill(entry.name).docstatus), ("Posted", 1)
-		)
+		self.assertEqual(self.submit(entry).docstatus, 1)
+
+	def test_user_cannot_submit_approver_can(self):
+		entry = self.make_entry()
+		with self.assertRaises(frappe.PermissionError):
+			self.submit(entry, as_user="user")
+		self.assertEqual(self.submit(entry, as_user="approver").docstatus, 1)
 
 	def test_bill_attachment_stays_on_the_journal_entry(self):
 		from quick_expense.tests.test_validations import png_file
 
 		file = png_file("courier.png")
 		entry = self.post(self.make_entry(bill_attachment=file.file_url))
-		self.assertEqual(entry.approval_status, "Posted", entry.posting_error)
+		self.assertEqual(entry.docstatus, 1)
 		self.assertEqual(
 			frappe.db.get_value("Journal Entry", entry.name, "qe_bill_attachment"), file.file_url
 		)
@@ -234,7 +230,7 @@ class TestIndiaComplianceReports(QETestCase):
 		]
 		for bill in bills:
 			posted = self.post(self.make_entry(**bill))
-			self.assertEqual(posted.approval_status, "Posted", posted.posting_error)
+			self.assertEqual(posted.docstatus, 1)
 
 	def test_gstr3b_tables(self):
 		# test cases 1, 2, 4, 5, 7, 9 as they appear in India Compliance's GSTR-3B
@@ -286,39 +282,6 @@ class TestIndiaComplianceReports(QETestCase):
 		rows = [row for row in data if row.get("voucher_no") == entry.linked_journal_entry]
 		self.assertEqual(len(rows), 1)
 		self.assertEqual((rows[0]["voucher_type"], rows[0]["cgst_amount"]), ("Journal Entry", 90))
-
-		set_settings(include_in_purchase_register=0)
-		_, data = gst_purchase_register.execute(frappe._dict(filters))
-		self.assertFalse([row for row in data if row.get("voucher_no") == entry.linked_journal_entry])
-		self.assertEqual(len(inward_rows(TN_GSTIN)), 1)  # GSTR-3B keeps it
-
-	def test_other_journal_entry_on_input_gst_blocked(self):
-		# test case 20
-		set_settings(restrict_input_gst_accounts=1)
-		je = frappe.get_doc(
-			{
-				"doctype": "Journal Entry",
-				"voucher_type": "Journal Entry",
-				"company": COMPANY,
-				"company_gstin": TN_GSTIN,
-				"posting_date": today(),
-				"accounts": [
-					{"account": "Input Tax CGST - QET", "debit_in_account_currency": 100},
-					{"account": cash(), "credit_in_account_currency": 100},
-				],
-			}
-		)
-		with self.assertRaisesRegex(frappe.ValidationError, "reserved for Quick Expense"):
-			je.insert()
-		je.qe_gst_account_override_reason = "Opening ITC correction"
-		with as_(user("am")):
-			je.insert()
-			je.submit()
-		self.assertTrue(
-			frappe.db.exists(
-				"Comment", {"reference_name": je.name, "content": ("like", "%Opening ITC correction%")}
-			)
-		)
 
 
 class TestPurchaseReconciliationTool(QETestCase):
@@ -500,29 +463,25 @@ class TestPurchaseReconciliationTool(QETestCase):
 
 
 class TestCancelAndAmend(QETestCase):
-	def test_cancel_records_history(self):
+	def test_cancel_frees_the_bill_key(self):
 		entry = self.post(self.make_entry())
 		entry.je.cancel()
-		bill = self.bill(entry.name)
-		self.assertEqual((bill.docstatus, bill.approval_status), (2, "Cancelled"))
-		self.assertEqual(bill.approval_history[-1].action, "Cancelled")
+		self.assertEqual(self.bill(entry.name).docstatus, 2)
 		self.assertIsNone(
 			__import__("quick_expense.services.duplicate_service", fromlist=["x"]).get_holder(
 				entry.duplicate_key
 			)
 		)
 
-	def test_amend_goes_through_approval_again(self):
+	def test_amend_is_a_fresh_draft(self):
 		entry = self.post(self.make_entry(supplier_invoice_no="AMD-1"))
 		entry.je.cancel()
 		amended = frappe.copy_doc(frappe.get_doc("Journal Entry", entry.name))
 		amended.docstatus = 0  # the desk "Amend" button does this
 		amended.amended_from = entry.name
 		amended.insert()
-		bill = self.bill(amended.name)
-		self.assertEqual(bill.approval_status, "Draft")
-		self.assertFalse(bill.approval_history)
-		self.assertEqual(self.submit(bill).approval_status, "Pending Approval")
+		self.assertEqual((amended.docstatus, amended.reconciliation_status), (0, None))
+		self.assertEqual(self.submit(self.bill(amended.name)).docstatus, 1)
 
 	def test_cancel_in_filed_period_blocked(self):
 		# test case 18
@@ -540,21 +499,11 @@ class TestCancelAndAmend(QETestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "filed"):
 			self.bill(entry.name).cancel()
 
-	def test_cancel_on_lock_date_blocked(self):
-		entry = self.post(self.make_entry())
-		settings = frappe.get_single("Quick Expense Settings")
-		settings.append(
-			"gst_lock_dates", {"company": COMPANY, "company_gstin": TN_GSTIN, "lock_date": today()}
-		)
-		settings.save()
-		with self.assertRaisesRegex(frappe.ValidationError, "GST Lock Date"):
-			self.bill(entry.name).cancel()
-
-	def test_only_drafts_can_be_deleted(self):
+	def test_submitted_bill_cannot_be_deleted(self):
 		frappe.delete_doc("Journal Entry", self.make_entry().name)
-		pending = self.submit(self.make_entry())
-		with self.assertRaisesRegex(frappe.ValidationError, "Only draft"):
-			frappe.delete_doc("Journal Entry", pending.name)
+		posted = self.submit(self.make_entry())
+		with self.assertRaises(frappe.ValidationError):
+			frappe.delete_doc("Journal Entry", posted.name)
 
 
 class TestJournalEntryForm(QETestCase):
@@ -612,10 +561,14 @@ class TestJournalEntryForm(QETestCase):
 		with self.assertRaisesRegex(frappe.ValidationError, "select the GST rate"):
 			entry.je.insert()
 
-	def test_standard_submit_is_blocked(self):
-		entry = self.make_entry()
-		with self.assertRaisesRegex(frappe.ValidationError, "Submit for Approval"):
-			frappe.get_doc("Journal Entry", entry.name).submit()
+	def test_standard_submit_checks_and_posts_the_bill(self):
+		je = frappe.get_doc("Journal Entry", self.make_entry(supplier_invoice_no="").name)
+		with self.assertRaisesRegex(frappe.ValidationError, "Supplier Invoice No is mandatory"):
+			je.submit()
+		je = frappe.get_doc("Journal Entry", self.make_entry().name)
+		je.submit()
+		self.assertEqual((je.docstatus, je.reconciliation_status), (1, "Unreconciled"))
+		self.assertTrue(frappe.db.exists("GL Entry", {"voucher_no": je.name, "is_cancelled": 0}))
 
 	def test_quick_expense_user_only_makes_quick_expense_bills(self):
 		with as_(user("user")):
@@ -637,66 +590,6 @@ class TestJournalEntryForm(QETestCase):
 			visible = frappe.get_list("Journal Entry", pluck="voucher_type", distinct=True)
 		self.assertEqual(set(visible), {"Quick Expense"})
 		self.assertTrue(mine.name)
-
-
-class TestCompatibilityGuard(QETestCase):
-	def setUp(self):
-		super().setUp()
-		ic_reports.apply_patches()
-
-	def test_self_test_passes_and_records_version(self):
-		set_settings(verified_ic_version="0.0.0")
-		result = compatibility_guard.check_compatibility()
-		self.assertEqual(result["status"], "passed", result.get("problems"))
-		self.assertEqual(
-			frappe.db.get_single_value("Quick Expense Settings", "verified_ic_version"),
-			compatibility_guard.installed_version(),
-		)
-
-	def test_failed_self_test_switches_overrides_off(self):
-		# test case 21
-		entry = self.post(self.make_entry())
-		set_settings(verified_ic_version="0.0.0")
-		with patch.object(
-			compatibility_guard,
-			"_structure_problems",
-			return_value=["GSTR3BInwardInvoices.get_data signature changed"],
-		):
-			self.assertEqual(compatibility_guard.check_compatibility()["status"], "failed")
-		self.assertEqual(frappe.db.get_single_value("Quick Expense Settings", "overrides_disabled"), 1)
-		frappe.clear_document_cache("Quick Expense Settings", "Quick Expense Settings")
-		self.assertFalse(
-			[row for row in inward_rows(TN_GSTIN) if row.voucher_no == entry.linked_journal_entry]
-		)
-		# reconciliation also stops offering Journal Entries
-		start, end = month_range()
-		tool = frappe.get_doc(
-			{
-				"doctype": "Purchase Reconciliation Tool",
-				"company": COMPANY,
-				"company_gstin": TN_GSTIN,
-				"gst_return": "GSTR 2B",
-				"from_date": start,
-				"to_date": end,
-				"include_ignored": 0,
-			}
-		)
-		self.assertFalse(
-			[
-				row
-				for row in tool.reconcile_and_generate_data()
-				if row.get("purchase_doctype") == "Journal Entry"
-			]
-		)
-		self.assertEqual(compatibility_guard.check_compatibility(force=True)["status"], "passed")
-		frappe.clear_document_cache("Quick Expense Settings", "Quick Expense Settings")
-		self.assertEqual(len(inward_rows(TN_GSTIN)), 1)
-
-	def test_same_version_skips_self_test(self):
-		set_settings(verified_ic_version=compatibility_guard.installed_version())
-		with patch.object(compatibility_guard, "run_self_test") as run:
-			self.assertEqual(compatibility_guard.check_compatibility()["status"], "verified")
-			run.assert_not_called()
 
 
 class TestCleanForm(QETestCase):
@@ -730,10 +623,19 @@ class TestCleanForm(QETestCase):
 			"qe_paid_through_account",
 			"qe_payment_type",
 			"qe_supplier_name_entered_manually",
-			"qe_approval_chain",
 			"qe_bill_key",
 		):
 			self.assertTrue(meta.get_field(field).hidden, field)
+
+	def test_quick_expense_block_sits_below_the_top_section(self):
+		# Series and Posting Date stay in the top section, not inside "GST Details"
+		names = [f.fieldname for f in frappe.get_meta("Journal Entry").fields]
+		for field in ("naming_series", "posting_date", "multi_currency"):
+			self.assertLess(names.index(field), names.index("qe_section"), field)
+		self.assertFalse(frappe.get_meta("Journal Entry").has_field("qe_is_transporter"))
+		row = frappe.get_meta("Journal Entry Account")
+		self.assertEqual(row.get_field("qe_eligibility").default, "All Other ITC")
+		self.assertTrue(row.get_field("qe_gst_as_per_bill").hidden)
 
 	def test_payment_is_the_cash_row_of_the_table(self):
 		entry = self.make_entry()
@@ -750,16 +652,6 @@ class TestCleanForm(QETestCase):
 		entry.je.append("accounts", {"account": bank()})
 		with self.assertRaisesRegex(frappe.ValidationError, "one Cash or Bank row"):
 			entry.je.insert()
-
-	def test_payment_account_cannot_change_in_approval(self):
-		from quick_expense.tests.utils import bank
-
-		entry = self.submit(self.make_entry())
-		with as_(user("approver")):
-			je = frappe.get_doc("Journal Entry", entry.name)
-			next(row for row in je.accounts if row.qe_gst_component == "Payment").account = bank()
-			with self.assertRaisesRegex(frappe.ValidationError, "Not allowed"):
-				je.save()
 
 
 class TestInvoiceManagementSystem(QETestCase):

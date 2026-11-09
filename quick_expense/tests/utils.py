@@ -205,8 +205,8 @@ PRESETS = {
 		account="QE Food", rate=5, hsn="9963", eligibility="Ineligible under Section 17(5)"
 	),
 	"Hotel Stay": dict(account="QE Hotel", rate=18, hsn="9963"),
-	"Freight and Transport (GTA)": dict(account="QE Freight", rate=5, hsn="9965", rcm=1, transporter=1),
-	"Loading and Unloading Charges": dict(account="QE Freight", rate=18, hsn="9967", transporter=1),
+	"Freight and Transport (GTA)": dict(account="QE Freight", rate=5, hsn="9965", rcm=1),
+	"Loading and Unloading Charges": dict(account="QE Freight", rate=18, hsn="9967"),
 	"Office Stationery": dict(account="QE Stationery", rate=18, hsn="4820"),
 	"Travel – Train and Bus": dict(account="QE Travel", rate=5, hsn="9964"),
 	"Fuel – Petrol and Diesel": dict(account="QE Fuel", treatment="Non-GST", hsn="2710"),
@@ -335,15 +335,6 @@ def ensure_test_masters():
 
 	frappe.db.set_single_value("GST Settings", "enable_overseas_transactions", 1)
 	setup_service.setup_all()
-	settings = frappe.get_single("Quick Expense Settings")
-	for company in (COMPANY, COMPANY_2):
-		if not any(r.company == company and r.account == bank(company) for r in settings.allowed_accounts):
-			settings.append("allowed_accounts", {"company": company, "account": bank(company)})
-		for row in settings.company_settings:
-			if row.company == company:
-				row.default_company_gstin = TN_GSTIN if company == COMPANY else COMPANY_2_GSTIN
-	settings.flags.from_setup = True
-	settings.save()
 	frappe.db.commit()  # nosemgrep: test masters must survive per-test rollbacks
 
 
@@ -398,27 +389,7 @@ def ensure_bank_account(company, abbr):
 
 BASE_SETTINGS = dict(
 	enable_quick_expense=1,
-	allow_direct_journal_entry=0,
 	use_gstin_api=1,
-	cancelled_gstin_action="Block",
-	gstin_cache_days=30,
-	require_approval_manual_supplier_name=1,
-	attachment_mandatory_above=10000000,
-	maximum_amount_per_entry=50000,
-	maximum_backdated_days=30,
-	tax_difference_tolerance=1,
-	cash_limit_per_person_per_day=10000,
-	cash_limit_transporters=35000,
-	cash_limit_action="Warn",
-	itc_time_limit_warning_days=30,
-	users_see_only_own_entries=0,
-	approval_required=1,
-	escalation_after_days=2,
-	allow_self_approval=0,
-	restrict_input_gst_accounts=0,
-	include_in_gstr3b=1,
-	include_in_purchase_register=1,
-	overrides_disabled=0,
 	round_grand_total=1,
 )
 
@@ -486,11 +457,6 @@ class QETestCase(IntegrationTestCase):
 			PRESETS[line.get("expense_category", "Courier and Postage Charges")].get("rcm") for line in lines
 		):
 			je.qe_is_reverse_charge = 1
-		if any(
-			PRESETS[line.get("expense_category", "Courier and Postage Charges")].get("transporter")
-			for line in lines
-		):
-			je.qe_is_transporter = 1
 		for key, value in values.items():
 			je.set(HEADER_MAP.get(key, key) if key != "linked_journal_entry" else key, value)
 		for line in lines:
@@ -508,31 +474,16 @@ class QETestCase(IntegrationTestCase):
 
 		return get_bill(name)
 
-	def submit(self, doc, as_user="user"):
+	def submit(self, doc, as_user="approver"):
+		"""Standard Submit by a user who holds the submit right. The warnings shown
+		to the user are kept on ``self.warnings``."""
 		with as_(user(as_user) if as_user in USERS else as_user):
-			self.bill(doc.name).submit_for_approval()
+			je = frappe.get_doc("Journal Entry", doc.name)
+			je.submit()
+		self.warnings = "\n".join(je.flags.qe_warnings or [])
 		return self.bill(doc.name)
 
-	def approve_level(self, doc, as_user, comment=""):
-		with as_(user(as_user) if as_user in USERS else as_user):
-			self.bill(doc.name).approve(comment)
-		return self.bill(doc.name)
-
-	def approve_all(self, doc):
-		"""Approve every level with a user who holds the level's role."""
-		doc = self.bill(doc.name)
-		role_users = {"Quick Expense Approver": "approver", "Accounts Manager": "am", "Finance Manager": "fm"}
-		import json
-
-		for step in json.loads(doc.approval_chain or "[]")[cint(doc.approval_level) - 1 :]:
-			doc = self.approve_level(doc, step.get("user") or role_users[step["role"]])
-		return doc
-
-	def post(self, doc, as_user="user"):
-		doc = self.submit(doc, as_user)
-		if doc.approval_status == "Pending Approval":
-			doc = self.approve_all(doc)
-		return doc
+	post = submit
 
 
 @contextmanager

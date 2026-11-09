@@ -2,8 +2,7 @@
 
 The India Compliance public GSTIN API is the primary source. When it is
 switched off, out of credits or down, the state and PAN are derived from the
-GSTIN itself and the user types the legal name; that path never blocks entry,
-it only forces approval (decided in approval_service).
+GSTIN itself and the user types the legal name; that path never blocks entry.
 """
 
 import re
@@ -210,7 +209,7 @@ class GSTINAPIUnavailable(Exception):
 
 def _call_api(gstin: str) -> frappe._dict:
 	"""GSTIN details through India Compliance (it archives portal responses, so repeat
-	lookups do not spend API credits). Kept in one place for the compatibility guard."""
+	lookups do not spend API credits)."""
 	from india_compliance.gst_india.utils import is_api_enabled
 	from india_compliance.gst_india.utils.gstin_info import _get_gstin_info
 

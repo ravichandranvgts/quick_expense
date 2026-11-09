@@ -66,7 +66,6 @@ class TestGSTINService(QETestCase):
 		entry = self.make_entry(supplier_gstin=SUPPLIER_KA, supplier_legal_name="Typed By User")
 		entry = self.submit(entry)
 		self.assertEqual(entry.supplier_name_entered_manually, 1)
-		self.assertIn("typed manually", entry.forced_approval_reasons)
 		self.assertEqual(entry.supplier_legal_name, "Typed By User")
 
 	def test_api_switched_off(self):
@@ -91,18 +90,12 @@ class TestGSTINService(QETestCase):
 		entry = self.submit(self.make_entry(supplier_gstin=SUPPLIER_KA, supplier_legal_name=""))
 		self.assertEqual(entry.supplier_name_entered_manually, 0)
 		self.assertEqual(entry.supplier_legal_name, "Known Courier Co")
-		self.assertNotIn("typed manually", entry.forced_approval_reasons or "")
 
 	def test_cancelled_gstin_blocked_by_default(self):
 		# test case 14
 		entry = self.make_entry(supplier_gstin=SUPPLIER_CANCELLED)
 		with self.assertRaisesRegex(frappe.ValidationError, "cancelled GSTIN"):
 			self.submit(entry)
-
-	def test_cancelled_gstin_warn_forces_approval(self):
-		set_settings(cancelled_gstin_action="Warn")
-		entry = self.submit(self.make_entry(supplier_gstin=SUPPLIER_CANCELLED))
-		self.assertIn("Cancelled", entry.forced_approval_reasons)
 
 	def test_composition_registration_switches_treatment(self):
 		entry = self.submit(self.make_entry(supplier_gstin=SUPPLIER_COMPOSITION))
@@ -259,7 +252,7 @@ class TestTaxEngine(QETestCase):
 		)
 		self.assertEqual(entry.is_reverse_charge, 1)
 		entry = self.post(entry)
-		self.assertEqual(entry.approval_status, "Posted")
+		self.assertEqual(entry.docstatus, 1)
 		self.assertTrue(entry.self_invoice_no.startswith(f"SI33{TN_GSTIN[12]}/2627/"))
 		self.assertLessEqual(len(entry.self_invoice_no), 16)
 
@@ -347,7 +340,7 @@ class TestTaxEngine(QETestCase):
 		self.assertEqual(entry.grand_total, 1181)
 		self.assertEqual(entry.round_off, 1)
 		entry = self.submit(entry)
-		self.assertIn("tax difference", entry.forced_approval_reasons)
+		self.assertIn("tax difference", self.warnings)
 
 	def test_tax_difference_above_tolerance_blocked(self):
 		# test case 16 (5.00)
@@ -396,10 +389,8 @@ class TestTaxEngine(QETestCase):
 		self.assertEqual(entry.lines[0].ineligibility_reason, "Bill not addressed to this GSTIN")
 		self.assertEqual(entry.total_eligible_itc, 0)
 		entry = self.submit(entry)
-		self.assertIn("not addressed", entry.forced_approval_reasons)
-		self.assertTrue(
-			any(step["role"] == "Accounts Manager" for step in frappe.parse_json(entry.approval_chain))
-		)
+		self.assertEqual(entry.docstatus, 1)
+		self.assertIn("not addressed", self.warnings)
 
 	def test_rate_comes_from_item_tax_template(self):
 		"""Change the template's rows and the calculation follows - nothing is hard coded."""
@@ -471,9 +462,8 @@ class TestSupplierNameWhenThePortalHasNone(QETestCase):
 		entry = self.submit(entry)
 
 		self.assertEqual(entry.supplier_legal_name, "Gurgaon Facilities")
-		# Not flagged as hand-typed: it came from the portal, just not from
-		# `lgnm`. Flagging it would send every such bill to approval where
-		# `require_approval_manual_supplier_name` is on.
+		# Not flagged as hand-typed: it came from the portal, just not from `lgnm`,
+		# so the field stays read-only like any other portal value.
 		self.assertFalse(entry.supplier_name_entered_manually)
 
 	def test_a_typed_name_is_not_overwritten(self):

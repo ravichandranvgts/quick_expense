@@ -10,7 +10,8 @@ in the right GSTR-3B tables and Purchase Register sections:
 * Purchase Reconciliation Tool        -> Journal Entry as a books doctype (see purchase_reconciliation.py)
 * gst_purchase_register.execute       -> only sets the "purchase register" context flag
 
-Each wrapper is skipped when the compatibility guard has switched overrides off.
+If India Compliance changes a patched method, apply_patches logs the error and
+leaves India Compliance's own behaviour untouched.
 """
 
 import functools
@@ -28,17 +29,8 @@ PURCHASE_REGISTER = "purchase_register"
 
 
 def overrides_active(context=GSTR3B) -> bool:
-	if frappe.flags.quick_expense_skip_overrides:
-		return False
-	try:
-		settings = frappe.get_cached_doc("Quick Expense Settings")
-	except Exception:
-		return False
-	if cint(settings.overrides_disabled):
-		return False
-	field = {GSTR3B: "include_in_gstr3b", PURCHASE_REGISTER: "include_in_purchase_register"}.get(context)
-	# 2A / 2B reconciliation of Journal Entries is always on while the overrides are healthy
-	return bool(cint(settings.get(field))) if field else True
+	"""Journal Entries are always included; a flag lets a caller see India Compliance's own figures."""
+	return not frappe.flags.quick_expense_skip_overrides
 
 
 def current_context():
@@ -184,10 +176,11 @@ _applied = False
 
 
 def apply_patches():
-	"""Idempotent per process. Called at request / job start (hooks) and by the guard."""
+	"""Idempotent per process. Called at request / job start (hooks)."""
 	global _applied
 	if _applied:
 		return
+	_applied = True  # tried once per process, so a failure is logged once, not on every request
 	try:
 		from india_compliance.gst_india.report.gst_purchase_register import gst_purchase_register
 		from india_compliance.gst_india.utils.gstr3b import gstr3b_inward_data, gstr3b_outward_data
@@ -206,7 +199,5 @@ def apply_patches():
 			# an IMS change must not take the GSTR-3B and 2B overrides down with it
 			frappe.log_error(title="Quick Expense: could not add Journal Entries to IMS")
 	except Exception:
-		# never break a request because India Compliance changed; the guard reports it
+		# never break a request because India Compliance changed
 		frappe.log_error(title="Quick Expense: could not apply India Compliance report overrides")
-		return
-	_applied = True

@@ -1,6 +1,6 @@
 """A Quick Expense Journal Entry seen as a GST expense bill.
 
-The tax engine, validations and approval engine work with "bill" field names
+The tax engine and validations work with "bill" field names
 (``supplier_gstin``, ``lines``, ``line.taxable_amount`` …). ``Bill`` maps those
 names onto the Journal Entry's ``qe_*`` fields and its expense rows, so every
 rule is written once and the Journal Entry stays the only document.
@@ -33,9 +33,7 @@ HEADER_MAP = {
 	"supplier_invoice_date": "qe_supplier_invoice_date",
 	"bill_addressed_to_company_gstin": "qe_bill_addressed_to_company_gstin",
 	"is_reverse_charge": "qe_is_reverse_charge",
-	"is_transporter": "qe_is_transporter",
 	"itc_claim_period": "qe_itc_claim_period",
-	"itc_claim_period_reason": "qe_itc_claim_period_reason",
 	"place_of_supply": "qe_place_of_supply",
 	"self_invoice_no": "qe_self_invoice_no",
 	"paid_through_account": "qe_paid_through_account",
@@ -55,18 +53,6 @@ HEADER_MAP = {
 	"total_reverse_charge_tax": "qe_total_reverse_charge_tax",
 	"round_off": "qe_round_off",
 	"grand_total": "qe_grand_total",
-	"warnings": "qe_warnings",
-	"forced_approval_reasons": "qe_forced_approval_reasons",
-	"approval_status": "qe_approval_status",
-	"approval_level": "qe_approval_level",
-	"approval_levels_required": "qe_approval_levels_required",
-	"current_approver_role": "qe_current_approver_role",
-	"current_approver_user": "qe_current_approver_user",
-	"submitted_for_approval_on": "qe_submitted_for_approval_on",
-	"last_escalated_on": "qe_last_escalated_on",
-	"approval_chain": "qe_approval_chain",
-	"approval_history": "qe_approval_history",
-	"posting_error": "qe_posting_error",
 	"cancel_reason": "qe_cancel_reason",
 	"duplicate_key": "qe_bill_key",
 	"linked_journal_entry": "name",
@@ -255,28 +241,6 @@ class Bill:
 		self.je.cancel()
 		self.reload()
 
-	# ---------------------------------------------------------------- approval actions
-	def submit_for_approval(self):
-		from quick_expense.services import approval_service
-
-		self.je.check_permission("write")
-		approval_service.submit_for_approval(self)
-
-	def approve(self, comment=""):
-		from quick_expense.services import approval_service
-
-		approval_service.approve(self, comment or "")
-
-	def reject(self, reason):
-		from quick_expense.services import approval_service
-
-		approval_service.reject(self, reason)
-
-	def retry_posting(self):
-		from quick_expense.services import approval_service
-
-		approval_service.retry_posting(self)
-
 	def _refresh(self):
 		object.__setattr__(self, "lines", [Line(row) for row in self.je.accounts if is_expense_row(row)])
 		object.__setattr__(self, "rules", self._rules())
@@ -303,9 +267,7 @@ class Bill:
 				place_of_supply_rule="Location of Service"
 				if line.location_of_service_state
 				else "Recipient Location",
-				is_transporter=cint(self.je.get("qe_is_transporter")),
 				tds_warning=0,
-				always_needs_accounts_manager_approval=0,
 				is_active=1,
 				rate_as_per_bill=1,
 				allowed_gst_rates="",

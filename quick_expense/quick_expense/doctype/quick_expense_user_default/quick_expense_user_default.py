@@ -1,8 +1,0 @@
-# Copyright (c) 2026, VGTS and contributors
-# For license information, please see license.txt
-
-from frappe.model.document import Document
-
-
-class QuickExpenseUserDefault(Document):
-	pass

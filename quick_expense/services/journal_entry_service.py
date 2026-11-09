@@ -1,4 +1,4 @@
-"""The Quick Expense Journal Entry: rows, approval guard, submit, cancel.
+"""The Quick Expense Journal Entry: rows, submit, cancel.
 
 The user types the supplier and bill on the header and one row per expense
 (expense account, taxable amount, GST rate as an Item Tax Template, HSN / SAC,
@@ -12,10 +12,9 @@ eligibility). On every save the system rebuilds the other rows:
 
 and keeps the bill's GST figures on every expense row (qe_* fields) so India
 Compliance's GSTR-3B, Purchase Register and Purchase Reconciliation Tool can read
-them. The Journal Entry is submitted only by the approval engine.
+them. The Journal Entry is submitted with the standard Submit button (or a Frappe
+Workflow); every rule is checked then.
 """
-
-import json
 
 import frappe
 from frappe import _
@@ -23,59 +22,25 @@ from frappe.model.naming import make_autoname
 from frappe.utils import cint, flt
 
 from quick_expense.constants import (
-	ACCOUNTS_MANAGER_EDITABLE_ROW_FIELDS,
-	AMOUNT_ROW_FIELDS,
-	APPROVED,
-	APPROVER_EDITABLE_FIELDS,
-	APPROVER_EDITABLE_ROW_FIELDS,
-	CANCELLED,
-	DRAFT,
-	EDITABLE_STATUSES,
 	EXPENSE_ROW,
 	JE_VOUCHER_TYPE,
 	OVERSEAS,
-	PENDING,
-	POSTED,
-	POSTING_FAILED,
 	REASON_POS,
 	UNREGISTERED,
 )
-from quick_expense.services import approval_service, validation_service
-from quick_expense.services.bill import Bill, is_expense_row
-from quick_expense.services.settings_service import get_company_setting, is_accounts_manager
+from quick_expense.services import duplicate_service, validation_service
+from quick_expense.services.bill import Bill
 
 HEADS = ("cgst", "sgst", "igst", "cess")
 COMPONENT = {"cgst": "CGST", "sgst": "SGST", "igst": "IGST", "cess": "Cess"}
 
-# set by the approval engine; never copied into a new or amended bill
+# set by the system; never copied into a new or amended bill
 SYSTEM_FIELDS = (
-	"qe_approval_level",
-	"qe_approval_levels_required",
-	"qe_current_approver_role",
-	"qe_current_approver_user",
-	"qe_submitted_for_approval_on",
-	"qe_last_escalated_on",
-	"qe_forced_approval_reasons",
-	"qe_approval_chain",
-	"qe_warnings",
-	"qe_posting_error",
 	"qe_cancel_reason",
 	"qe_self_invoice_no",
 	"qe_bill_key",
 	"reconciliation_status",
 )
-# header fields that change on every save without a user edit
-VOLATILE_FIELDS = {
-	"title",
-	"remark",
-	"total_debit",
-	"total_credit",
-	"difference",
-	"total_amount",
-	"total_amount_in_words",
-	"pay_to_recd_from",
-	"company_gstin",
-}
 
 
 def is_quick_expense(je) -> bool:
@@ -87,32 +52,23 @@ def is_quick_expense(je) -> bool:
 
 
 def before_validate(je, method=None):
-	if not is_quick_expense(je) or je.docstatus != 0:
+	if not is_quick_expense(je):
 		return
-	if je.is_new() and not je.flags.qe_internal_save:
+	submitting = je.docstatus == 1 and je._action == "submit"
+	if je.docstatus != 0 and not submitting:
+		return
+	if je.is_new():
 		for field in SYSTEM_FIELDS:
 			je.set(field, None)
-		je.set("qe_approval_history", [])
-		je.qe_approval_status = DRAFT
-	je.qe_approval_status = je.qe_approval_status or DRAFT
 
-	guard_edits(je)
 	clean_user_rows(je)
 	bill = Bill(je)
-	validation_service.prepare(bill)
+	if submitting:
+		result = validation_service.validate_for_submit(bill)
+		je.flags.qe_warnings = result.warnings
+	else:
+		validation_service.prepare(bill)
 	write_back(je, bill)
-
-	if je.flags.amount_changed_in_approval:
-		result = validation_service.validate_for_approval(bill)
-		write_back(je, bill)
-		je.qe_forced_approval_reasons = "\n".join(result.forced)
-		je.qe_warnings = "\n".join(result.warnings)
-		chain = approval_service.build_chain(bill, result.forced)
-		je.qe_approval_chain = json.dumps(chain)
-		je.qe_approval_levels_required = len(chain)
-		if je.qe_approval_status == POSTING_FAILED:
-			je.qe_approval_status = PENDING
-		approval_service.return_to_level_one(bill, _("Amounts changed by {0}").format(frappe.session.user))
 
 
 def clean_user_rows(je):
@@ -129,7 +85,11 @@ def clean_user_rows(je):
 		)
 		if component == "Payment" or account_type in ("Cash", "Bank"):
 			row.qe_gst_component = "Payment"
-			row.update(dict.fromkeys(("qe_item_tax_template", "qe_hsn_sac", "qe_eligibility"), None))
+			row.update(
+				dict.fromkeys(
+					("qe_taxable_amount", "qe_item_tax_template", "qe_hsn_sac", "qe_eligibility"), None
+				)
+			)
 			payment_rows.append(row)
 			continue
 		if component and component != EXPENSE_ROW:
@@ -152,17 +112,6 @@ def clean_user_rows(je):
 	je.qe_paid_through_account = payment_rows[0].account if payment_rows else None
 	je.flags.qe_payment_row = payment_rows[0] if payment_rows else None
 	je.set("accounts", expense_rows + payment_rows)
-
-
-def on_update(je, method=None):
-	if is_quick_expense(je) and je.flags.amount_changed_in_approval:
-		je.flags.amount_changed_in_approval = False
-		bill = Bill(je)
-		from quick_expense.services import duplicate_service
-
-		duplicate_service.check_duplicate(bill)
-		duplicate_service.reserve(bill)
-		approval_service.notify_current_approvers(bill)
 
 
 def header_ineligibility_reason(bill) -> str:
@@ -280,9 +229,7 @@ def system_rows(bill) -> list[dict]:
 				)
 
 	if flt(bill.round_off):
-		account = get_company_setting(bill.company).get("round_off_account") or frappe.get_cached_value(
-			"Company", bill.company, "round_off_account"
-		)
+		account = frappe.get_cached_value("Company", bill.company, "round_off_account")
 		key = "debit_in_account_currency" if bill.round_off > 0 else "credit_in_account_currency"
 		rows.append(
 			{
@@ -298,94 +245,6 @@ def system_rows(bill) -> list[dict]:
 	return rows
 
 
-def guard_edits(je):
-	"""While a bill is in approval only a few fields may change (prompt 13.5)."""
-	if je.is_new() or je.flags.qe_internal_save or je.qe_approval_status in EDITABLE_STATUSES:
-		return
-	before = je.get_doc_before_save()
-	if not before:
-		return
-
-	changed_header = {
-		field.fieldname
-		for field in je.meta.fields
-		if field.fieldname not in VOLATILE_FIELDS
-		and not field.read_only
-		and field.fieldtype not in ("Section Break", "Column Break", "Tab Break", "Table", "HTML")
-		and (je.get(field.fieldname) or None) != (before.get(field.fieldname) or None)
-	}
-	old_rows = {row.name: row for row in before.accounts if is_expense_row(row)}
-	new_rows = [row for row in je.accounts if is_expense_row(row)]
-	rows_added_or_removed = {row.name for row in new_rows} != set(old_rows)
-	changed_row_fields = set()
-	for row in new_rows:
-		old = old_rows.get(row.name)
-		if not old:
-			continue
-		for field in row.meta.fields:
-			if field.read_only or field.fieldtype in ("Section Break", "Column Break"):
-				continue
-			if field.fieldname in (
-				"debit_in_account_currency",
-				"credit_in_account_currency",
-				"debit",
-				"credit",
-			):
-				continue
-			if (row.get(field.fieldname) or None) != (old.get(field.fieldname) or None):
-				changed_row_fields.add(field.fieldname)
-
-	def payment_account(doc):
-		return next(
-			(
-				row.account
-				for row in doc.accounts
-				if row.get("qe_gst_component") == "Payment"
-				or (
-					row.account
-					and frappe.get_cached_value("Account", row.account, "account_type") in ("Cash", "Bank")
-				)
-			),
-			None,
-		)
-
-	if payment_account(je) != payment_account(before):
-		changed_header.add("qe_paid_through_account")
-
-	if not (changed_header or changed_row_fields or rows_added_or_removed):
-		return
-
-	bill = Bill(je)
-	user_is_am = is_accounts_manager()
-	if je.qe_approval_status in (POSTED, CANCELLED):
-		frappe.throw(_("A posted or cancelled bill cannot be edited."))
-	if je.qe_approval_status in (APPROVED, POSTING_FAILED) and not user_is_am:
-		frappe.throw(_("This bill is approved. Only an Accounts Manager can change it."))
-	if je.qe_approval_status == PENDING and not (
-		user_is_am or approval_service.get_approval_block_reason(bill) is None
-	):
-		frappe.throw(
-			_(
-				"This bill is pending approval and cannot be edited. Ask the approver to reject it if it needs changes."
-			)
-		)
-
-	allowed_rows = set(ACCOUNTS_MANAGER_EDITABLE_ROW_FIELDS if user_is_am else APPROVER_EDITABLE_ROW_FIELDS)
-	disallowed_header = changed_header - set(APPROVER_EDITABLE_FIELDS)
-	disallowed_rows = changed_row_fields - allowed_rows - set(AMOUNT_ROW_FIELDS)
-	if disallowed_header or disallowed_rows:
-		labels = [je.meta.get_label(f) for f in disallowed_header] + [
-			frappe.get_meta("Journal Entry Account").get_label(f) for f in disallowed_rows
-		]
-		frappe.throw(
-			_(
-				"While in approval only the remark, cost centers{0} and the amounts can change. Not allowed: {1}."
-			).format(_(", ITC eligibility") if user_is_am else "", ", ".join(labels))
-		)
-	if rows_added_or_removed or changed_row_fields & set(AMOUNT_ROW_FIELDS):
-		je.flags.amount_changed_in_approval = True
-
-
 # ============================================================================
 # submit / cancel / delete
 
@@ -393,11 +252,9 @@ def guard_edits(je):
 def before_submit(je, method=None):
 	if not is_quick_expense(je):
 		return
-	if not je.flags.qe_posting:
-		frappe.throw(
-			_("Quick Expense bills are submitted automatically after approval. Use Submit for Approval."),
-			title=_("Approval Required"),
-		)
+	bill = Bill(je)
+	duplicate_service.reserve(bill)
+	je.qe_bill_key = bill.duplicate_key
 	if (
 		cint(je.qe_is_reverse_charge)
 		and je.qe_gst_treatment in (UNREGISTERED, OVERSEAS)
@@ -411,6 +268,8 @@ def before_submit(je, method=None):
 				je.total_debit, je.total_credit
 			)
 		)
+	for warning in je.flags.qe_warnings or []:
+		frappe.msgprint(warning, title=_("Quick Expense"), indicator="orange")
 
 
 def needs_2b(je) -> bool:
@@ -430,8 +289,6 @@ def make_self_invoice_no(je) -> str:
 def before_cancel(je, method=None):
 	if not is_quick_expense(je):
 		return
-	bill = Bill(je)
-	validation_service.validate_lock_date(bill, action=_("cancelled"))
 	if validation_service.is_gstr3b_filed(je.company_gstin, je.qe_itc_claim_period):
 		frappe.throw(
 			_(
@@ -454,19 +311,6 @@ def on_cancel(je, method=None):
 	from quick_expense.services import reconciliation_service
 
 	reconciliation_service.unlink(je, from_cancel=True)
-	bill = Bill(je)
-	approval_service.add_history(bill, _("Cancelled"), je.qe_cancel_reason or "")
-	je.qe_approval_history[-1].db_insert()
-	je.db_set("qe_approval_status", CANCELLED)
-
-
-def on_trash(je, method=None):
-	if (
-		is_quick_expense(je)
-		and je.docstatus == 0
-		and (je.qe_approval_status or DRAFT) not in EDITABLE_STATUSES
-	):
-		frappe.throw(_("Only draft or rejected Quick Expense bills can be deleted."))
 
 
 # ============================================================================
@@ -479,32 +323,16 @@ def quick_expense_only(user) -> bool:
 	return user != "Administrator" and not (set(frappe.get_roles(user)) & FULL_JE_ROLES)
 
 
-def _own_entries_only(user) -> bool:
-	from quick_expense.constants import ROLE_APPROVER, ROLE_FINANCE_MANAGER
-
-	if not cint(frappe.db.get_single_value("Quick Expense Settings", "users_see_only_own_entries")):
-		return False
-	return (
-		not (set(frappe.get_roles(user)) & {ROLE_APPROVER, ROLE_FINANCE_MANAGER, *FULL_JE_ROLES})
-		and user != "Administrator"
-	)
-
-
 def get_permission_query_conditions(user=None):
 	user = user or frappe.session.user
-	conditions = []
 	if quick_expense_only(user):
-		conditions.append(f"`tabJournal Entry`.`voucher_type` = {frappe.db.escape(JE_VOUCHER_TYPE)}")
-	if _own_entries_only(user):
-		conditions.append(f"`tabJournal Entry`.`owner` = {frappe.db.escape(user)}")
-	return " and ".join(conditions)
+		return f"`tabJournal Entry`.`voucher_type` = {frappe.db.escape(JE_VOUCHER_TYPE)}"
+	return ""
 
 
 def has_permission(doc, ptype=None, user=None, debug=False):
 	user = user or frappe.session.user
 	if quick_expense_only(user) and doc.voucher_type and doc.voucher_type != JE_VOUCHER_TYPE:
-		return False
-	if _own_entries_only(user) and doc.owner and doc.owner != user and not doc.is_new():
 		return False
 	return True
 
