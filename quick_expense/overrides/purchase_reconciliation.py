@@ -230,6 +230,32 @@ def wrap_get_all_purchases(original):
 	return get_all_purchase_invoice_and_bill_of_entry
 
 
+def wrap_with_period_filter(original):
+	"""2B side of the tool, GSTR 2B mode: a record matched to a Quick Expense Journal Entry
+	before its GSTR-2B is generated (downloaded from IMS, no 2B period yet) stays in the
+	period of the supplier's return, so the bill does not drop out of the tool."""
+
+	@functools.wraps(original)
+	def with_period_filter(self, additional_fields=None):
+		if self.gst_return != "GSTR 2B" or not reconciliation_active():
+			return original(self, additional_fields)
+		from india_compliance.gst_india.doctype.purchase_reconciliation_tool import BaseUtil
+
+		GSTR2 = self.GSTR2
+		periods = BaseUtil._get_periods(self.from_date, self.to_date)
+		return self.get_query(additional_fields).where(
+			GSTR2.return_period_2b.isin(periods)
+			| (
+				(GSTR2.link_doctype == DOCTYPE)
+				& (IfNull(GSTR2.return_period_2b, "") == "")
+				& GSTR2.sup_return_period.isin(periods)
+			)
+		)
+
+	with_period_filter._qe_wrapped = True
+	return with_period_filter
+
+
 def _journal_entry_rows(data):
 	return [row for row in frappe.parse_json(data) if row.get("purchase_doctype") == DOCTYPE]
 
@@ -343,6 +369,7 @@ def whitelisted(factory):
 def apply_patches(patch):
 	from india_compliance.gst_india.doctype.purchase_reconciliation_tool import (
 		BaseReconciliation,
+		InwardSupply,
 		ReconciledData,
 	)
 	from india_compliance.gst_india.doctype.purchase_reconciliation_tool.purchase_reconciliation_tool import (
@@ -351,6 +378,7 @@ def apply_patches(patch):
 
 	patch(BaseReconciliation, "get_unmatched_purchase_or_bill_of_entry", wrap_get_unmatched_purchases)
 	patch(ReconciledData, "get_all_purchase_invoice_and_bill_of_entry", wrap_get_all_purchases)
+	patch(InwardSupply, "with_period_filter", wrap_with_period_filter)
 	patch(PurchaseReconciliationTool, "apply_action", whitelisted(wrap_apply_action))
 	patch(PurchaseReconciliationTool, "unlink_documents", whitelisted(wrap_unlink_documents))
 	patch(PurchaseReconciliationTool, "link_documents", whitelisted(wrap_link_documents))

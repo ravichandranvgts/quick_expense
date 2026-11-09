@@ -45,8 +45,13 @@ REQUIRED = [
 	),
 	(
 		"india_compliance.gst_india.doctype.purchase_reconciliation_tool",
+		"InwardSupply",
+		("with_period_filter", "get_query"),
+	),
+	(
+		"india_compliance.gst_india.doctype.purchase_reconciliation_tool",
 		"BaseUtil",
-		("get_fy",),
+		("get_fy", "_get_periods"),
 	),
 	(
 		"india_compliance.gst_india.doctype.purchase_reconciliation_tool.purchase_reconciliation_tool",

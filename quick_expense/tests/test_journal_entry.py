@@ -834,3 +834,24 @@ class TestInvoiceManagementSystem(QETestCase):
 		self.assertIn(entry.linked_journal_entry, [option.value for option in options])
 		ims.link_documents(entry.linked_journal_entry, inward.name, "Journal Entry")
 		self.assertEqual(self.entry_status(entry), ("Match Found", inward.name))
+
+	def test_ims_only_record_in_reconciliation_tool(self):
+		"""UAT case: a record downloaded only from IMS (no 2B period yet) and matched in IMS
+		shows in the tool in GSTR 2B and GSTR 2A mode, by the supplier's return period."""
+		period = getdate(today()).strftime("%m%Y")
+		entry = self.post(self.make_entry())
+		inward = self.make_ims_supply(entry, return_period_2b=None, sup_return_period=period)
+		draft = self.make_entry()  # never posted, so nothing in the books matches it
+		unlinked = self.make_ims_supply(draft, return_period_2b=None, sup_return_period=period)
+		self.ims().autoreconcile_and_get_data()
+		self.assertEqual(self.entry_status(entry), ("Match Found", inward.name))
+
+		tool = TestPurchaseReconciliationTool.tool(self)
+		for gst_return in ("GSTR 2B", "GSTR 2A"):
+			tool.gst_return = gst_return
+			data = tool.reconcile_and_generate_data()
+			row = next(r for r in data if r.get("purchase_invoice_name") == entry.linked_journal_entry)
+			self.assertEqual((row.inward_supply_name, row.match_status), (inward.name, "Exact Match"))
+			if gst_return == "GSTR 2B":
+				# an IMS-only record not linked to a Journal Entry keeps India Compliance's rule
+				self.assertNotIn(unlinked.name, [r.get("inward_supply_name") for r in data])
