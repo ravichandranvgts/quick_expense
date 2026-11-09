@@ -241,9 +241,7 @@ def get_gstin_details(gstin: str, force_refresh: bool = False) -> frappe._dict:
 		addresses=[],
 	)
 	if not cint(get_settings().use_gstin_api):
-		return frappe._dict(
-			base, source="Manual", message=_("GSTIN API is switched off in Quick Expense Settings.")
-		)
+		return _without_api(base, _("GSTIN API is switched off in Quick Expense Settings."))
 
 	try:
 		info = _call_api(gstin)
@@ -253,13 +251,15 @@ def get_gstin_details(gstin: str, force_refresh: bool = False) -> frappe._dict:
 		raise
 	except Exception as exc:
 		frappe.clear_last_message()
-		frappe.log_error(title=f"Quick Expense: GSTIN API failed for {gstin}", message=frappe.get_traceback())
-		return frappe._dict(
+		if not isinstance(exc, GSTINAPIUnavailable):
+			frappe.log_error(
+				title=f"Quick Expense: GSTIN API failed for {gstin}", message=frappe.get_traceback()
+			)
+		return _without_api(
 			base,
-			source="Manual",
-			message=_(
-				"GSTIN details could not be fetched ({0}). Please type the supplier legal name."
-			).format(str(exc)[:140] or exc.__class__.__name__),
+			_("GSTIN details could not be fetched from the GST portal ({0}).").format(
+				str(exc)[:140] or exc.__class__.__name__
+			),
 		)
 
 	addresses = [dict(address) for address in info.get("all_addresses") or []]
@@ -289,6 +289,63 @@ def get_gstin_details(gstin: str, force_refresh: bool = False) -> frappe._dict:
 	)
 	cache[gstin] = dict(details)
 	return details
+
+
+def _without_api(base: frappe._dict, reason: str) -> frappe._dict:
+	"""No portal lookup: use the Supplier master when it already has this GSTIN,
+	otherwise the user types the name."""
+	if details := from_supplier_master(base):
+		return details
+	return frappe._dict(
+		base,
+		source="Manual",
+		message=_(
+			"{0} Type the supplier legal name, or ask your administrator to add the India Compliance API Secret in GST Settings."
+		).format(reason),
+	)
+
+
+def from_supplier_master(base: frappe._dict) -> frappe._dict | None:
+	"""Name and address of an existing Supplier with this GSTIN (enabled suppliers first)."""
+	supplier = frappe.db.get_value(
+		"Supplier",
+		{"gstin": base.gstin},
+		["name", "supplier_name", "gst_category", "supplier_primary_address"],
+		as_dict=True,
+		order_by="disabled asc, creation asc",
+	)
+	if not supplier:
+		return None
+	address = frappe._dict()
+	address_name = supplier.supplier_primary_address or frappe.db.get_value(
+		"Address", {"gstin": base.gstin, "disabled": 0}, "name", order_by="is_primary_address desc"
+	)
+	if address_name:
+		address = (
+			frappe.db.get_value(
+				"Address",
+				address_name,
+				["address_line1", "address_line2", "city", "state", "pincode"],
+				as_dict=True,
+			)
+			or frappe._dict()
+		)
+	return frappe._dict(
+		base,
+		legal_name=supplier.supplier_name,
+		trade_name=supplier.supplier_name,
+		business_name=supplier.supplier_name,
+		status="",
+		registration_type=supplier.gst_category or "",
+		state=address.state or base.state,
+		address=", ".join(
+			part for part in (address.address_line1, address.address_line2, address.city) if part
+		),
+		pincode=address.pincode or "",
+		supplier=supplier.name,
+		source="Supplier Master",
+		message=_("Supplier details filled from Supplier {0}.").format(supplier.name),
+	)
 
 
 def is_blocking_status(status: str | None) -> bool:

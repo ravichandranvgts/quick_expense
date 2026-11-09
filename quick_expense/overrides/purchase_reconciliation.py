@@ -41,10 +41,36 @@ class QuickExpenseJournalEntry:
 		self.JE = frappe.qb.DocType("Journal Entry")
 		self.ROW = frappe.qb.DocType("Journal Entry Account")
 
+	# The filters below are written here, not taken from India Compliance's BaseUtil
+	# helpers, because those helpers only exist from India Compliance 16.10.
 	def get_all(self, additional_fields=None, names=None, only_names=False):
-		from india_compliance.gst_india.doctype.purchase_reconciliation_tool import BaseUtil
+		if only_names and not names:
+			return
+		query = self.get_query(additional_fields, ignore_company_gstin=True)
+		if only_names:
+			return query.where(self.JE.name.isin(names)).run(as_dict=True)
+		criterion = (
+			self.company_gstin_criterion()
+			& (self.JE.posting_date[self.from_date : self.to_date])
+			& (IfNull(self.JE.reconciliation_status, "").notin(MATCHED))
+		)
+		if names:
+			criterion |= self.JE.name.isin(names)
+		return query.where(criterion).run(as_dict=True)
 
-		return BaseUtil._get_all(self, self.JE, additional_fields, names, only_names)
+	def company_gstin_criterion(self):
+		if self.company_gstin == "All":
+			return IfNull(self.JE.company_gstin, "") != ""
+		return self.JE.company_gstin == self.company_gstin
+
+	def apply_filters(self, query, ignore_company_gstin=False):
+		if self.company:
+			query = query.where(self.JE.company == self.company)
+		if self.include_ignored == 0:
+			query = query.where(IfNull(self.JE.reconciliation_status, "") != "Ignored")
+		if ignore_company_gstin:
+			return query
+		return query.where(self.company_gstin_criterion())
 
 	def get_unmatched(self, category=None, is_return=0):
 		from india_compliance.gst_india.doctype.purchase_reconciliation_tool import BaseUtil
@@ -60,7 +86,6 @@ class QuickExpenseJournalEntry:
 
 	def get_query(self, additional_fields=None, ignore_company_gstin=False):
 		from india_compliance.gst_india.constants import TAXABLE_GST_TREATMENTS
-		from india_compliance.gst_india.doctype.purchase_reconciliation_tool import BaseUtil
 
 		query = (
 			frappe.qb.from_(self.JE)
@@ -76,7 +101,7 @@ class QuickExpenseJournalEntry:
 			.groupby(self.JE.name)
 			.select(*self.get_fields(additional_fields), ConstantColumn(DOCTYPE).as_("doctype"))
 		)
-		return BaseUtil._apply_filters(self, self.JE, query, ignore_company_gstin)
+		return self.apply_filters(query, ignore_company_gstin)
 
 	def get_fields(self, additional_fields=None):
 		JE, ROW = self.JE, self.ROW

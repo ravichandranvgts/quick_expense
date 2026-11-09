@@ -169,8 +169,9 @@ JOURNAL_ENTRY = [
 		"fieldname": "qe_bill_addressed_to_company_gstin",
 		"label": "Bill is addressed to the selected Company GSTIN",
 		"fieldtype": "Check",
+		"default": "1",
 		"insert_after": "qe_supplier_invoice_date",
-		"no_copy": 1,
+		"description": "Untick only when our GSTIN is not printed on the bill; its GST then cannot be claimed.",
 	},
 	{
 		"fieldname": "qe_is_reverse_charge",

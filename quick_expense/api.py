@@ -4,6 +4,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.query_builder.functions import IfNull
 
 from quick_expense.constants import JE_VOUCHER_TYPE
 from quick_expense.services import approval_service, gstin_service
@@ -84,6 +85,36 @@ def get_entry_defaults(company: str):
 		"company_gstins": [row.gstin for row in gstins],
 		"allowed_accounts": allowed,
 	}
+
+
+@frappe.whitelist()
+def get_last_gst_rate(company: str, supplier_gstin: str, account: str | None = None):
+	"""GST rate (Item Tax Template) of this supplier's latest bill, preferring the same expense account."""
+	frappe.has_permission("Journal Entry", "create", throw=True)
+	if not (company and supplier_gstin):
+		return None
+	if account and frappe.get_cached_value("Account", account, "account_type") in ("Cash", "Bank"):
+		return None  # the payment row has no GST rate
+	je = frappe.qb.DocType("Journal Entry")
+	row = frappe.qb.DocType("Journal Entry Account")
+	query = (
+		frappe.qb.from_(row)
+		.join(je)
+		.on(je.name == row.parent)
+		.select(row.qe_item_tax_template, row.qe_hsn_sac)
+		.where(je.voucher_type == JE_VOUCHER_TYPE)
+		.where(je.docstatus < 2)
+		.where(je.company == company)
+		.where(je.qe_supplier_gstin == gstin_service.normalise_gstin(supplier_gstin))
+		.where(IfNull(row.qe_item_tax_template, "") != "")
+		.orderby(je.posting_date, order=frappe.qb.desc)
+		.orderby(je.creation, order=frappe.qb.desc)
+		.limit(1)
+	)
+	if account and (same_account := query.where(row.account == account).run(as_dict=True)):
+		return same_account[0]
+	rows = query.run(as_dict=True)
+	return rows[0] if rows else None
 
 
 @frappe.whitelist()

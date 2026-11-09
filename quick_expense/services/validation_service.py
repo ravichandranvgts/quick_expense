@@ -20,6 +20,7 @@ from frappe.utils import add_days, cint, flt, getdate, nowdate
 
 from quick_expense.constants import (
 	COMPOSITION,
+	GSTIN_FILLED_SOURCES,
 	GSTIN_REQUIRED_TREATMENTS,
 	INVOICE_REQUIRED_TREATMENTS,
 	JE_VOUCHER_TYPE,
@@ -196,7 +197,7 @@ def fill_from_gstin(doc):
 	except gstin_service.GSTINError:
 		frappe.clear_last_message()  # e.g. not on the portal: reported when the bill is submitted
 		details = frappe._dict(source="Manual", state=gstin_service.state_from_gstin(doc.supplier_gstin))
-	if details.source != "API":
+	if details.source not in GSTIN_FILLED_SOURCES:
 		doc.supplier_name_entered_manually = 1
 		doc.supplier_state = doc.supplier_state or details.state
 		return
@@ -293,7 +294,7 @@ def apply_gstin_details(doc, settings, result):
 	doc.gstin_details_source = details.source
 	doc.supplier_pan = details.pan
 
-	if details.source in ("API", "Cache"):
+	if details.source in GSTIN_FILLED_SOURCES:
 		doc.gstin_status = details.status
 		doc.supplier_registration_type = details.registration_type
 		if details.legal_name:

@@ -150,6 +150,19 @@ class TestAPI(QETestCase):
 			defaults["allowed_accounts"],
 		)
 
+	def test_last_gst_rate_of_supplier(self):
+		self.assertIsNone(api.get_last_gst_rate(COMPANY, SUPPLIER_TN))
+		entry = self.make_entry()
+		line = entry.lines[0]
+		last = api.get_last_gst_rate(COMPANY, SUPPLIER_TN, line.expense_account)
+		self.assertEqual(last.qe_item_tax_template, line.item_tax_template)
+		cash = frappe.db.get_value("Account", {"company": COMPANY, "account_type": "Cash", "is_group": 0})
+		self.assertIsNone(api.get_last_gst_rate(COMPANY, SUPPLIER_TN, cash))
+		# the payment row keeps no GST rate
+		self.assertFalse(
+			[r for r in entry.je.accounts if r.qe_gst_component == "Payment" and r.qe_item_tax_template]
+		)
+
 	def test_bulk_approve(self):
 		names = [self.submit(self.make_entry()).name for _ in range(2)]
 		with as_(user("approver")):

@@ -72,6 +72,26 @@ class TestGSTINService(QETestCase):
 		set_settings(use_gstin_api=0)
 		self.assertEqual(gstin_service.get_gstin_details(SUPPLIER_TN).source, "Manual")
 
+	def test_no_api_uses_supplier_master(self):
+		frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": "Known Courier Co",
+				"gstin": SUPPLIER_KA,
+				"gst_category": "Registered Regular",
+				"supplier_group": frappe.db.get_value("Supplier Group", {"is_group": 0}),
+			}
+		).insert()
+		API_DOWN["value"] = True
+		details = gstin_service.get_gstin_details(SUPPLIER_KA)
+		self.assertEqual((details.source, details.legal_name), ("Supplier Master", "Known Courier Co"))
+		self.assertEqual(details.registration_type, "Registered Regular")
+
+		entry = self.submit(self.make_entry(supplier_gstin=SUPPLIER_KA, supplier_legal_name=""))
+		self.assertEqual(entry.supplier_name_entered_manually, 0)
+		self.assertEqual(entry.supplier_legal_name, "Known Courier Co")
+		self.assertNotIn("typed manually", entry.forced_approval_reasons or "")
+
 	def test_cancelled_gstin_blocked_by_default(self):
 		# test case 14
 		entry = self.make_entry(supplier_gstin=SUPPLIER_CANCELLED)

@@ -46,7 +46,7 @@ REQUIRED = [
 	(
 		"india_compliance.gst_india.doctype.purchase_reconciliation_tool",
 		"BaseUtil",
-		("_get_all", "_apply_filters", "get_fy"),
+		("get_fy",),
 	),
 	(
 		"india_compliance.gst_india.doctype.purchase_reconciliation_tool.purchase_reconciliation_tool",

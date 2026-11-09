@@ -129,6 +129,7 @@ def clean_user_rows(je):
 		)
 		if component == "Payment" or account_type in ("Cash", "Bank"):
 			row.qe_gst_component = "Payment"
+			row.update(dict.fromkeys(("qe_item_tax_template", "qe_hsn_sac", "qe_eligibility"), None))
 			payment_rows.append(row)
 			continue
 		if component and component != EXPENSE_ROW:

@@ -91,7 +91,7 @@ frappe.ui.form.on("Journal Entry", {
 					return;
 				}
 				const values = { qe_supplier_state: d.state, qe_gstin_status: d.status || "" };
-				if (d.source === "API") {
+				if (["API", "Supplier Master"].includes(d.source)) {
 					Object.assign(values, {
 						qe_supplier_legal_name: d.legal_name,
 						qe_supplier_trade_name: d.trade_name,
@@ -102,9 +102,14 @@ frappe.ui.form.on("Journal Entry", {
 					if (QE_GSTIN_TREATMENTS.includes(d.registration_type) && d.registration_type !== frm.doc.qe_gst_treatment) {
 						values.qe_gst_treatment = d.registration_type;
 					}
+					if (d.source !== "API") frappe.show_alert({ message: d.message, indicator: "green" }, 5);
 				} else {
 					values.qe_supplier_name_entered_manually = 1;
-					frappe.show_alert({ message: d.message || __("Type the supplier legal name."), indicator: "orange" }, 8);
+					frappe.msgprint({
+						title: __("Supplier Details Not Fetched"),
+						message: d.message || __("Type the supplier legal name."),
+						indicator: "orange",
+					});
 				}
 				frm.set_value(values);
 				if (d.blocking_status) {
@@ -119,7 +124,35 @@ frappe.ui.form.on("Journal Entry", {
 	},
 });
 
+const QE_ROW_GST_FIELDS = ["qe_item_tax_template", "qe_hsn_sac", "qe_eligibility"];
+
 frappe.ui.form.on("Journal Entry Account", {
+	// a new row takes the GST rate, HSN and eligibility of the expense row above it
+	accounts_add(frm, cdt, cdn) {
+		if (frm.doc.voucher_type !== "Quick Expense") return;
+		const previous = (frm.doc.accounts || [])
+			.filter((row) => row.name !== cdn && !row.qe_gst_component && row.qe_item_tax_template)
+			.pop();
+		if (!previous) return;
+		QE_ROW_GST_FIELDS.forEach((field) => previous[field] && frappe.model.set_value(cdt, cdn, field, previous[field]));
+	},
+	// no rate yet: use the one on this supplier's last bill (same expense account first)
+	account(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+		if (frm.doc.voucher_type !== "Quick Expense" || row.qe_gst_component || row.qe_item_tax_template) return;
+		if (!row.account || !frm.doc.qe_supplier_gstin || frm.__qe_allowed_accounts?.includes(row.account)) return;
+		frappe
+			.xcall("quick_expense.api.get_last_gst_rate", {
+				company: frm.doc.company,
+				supplier_gstin: frm.doc.qe_supplier_gstin,
+				account: row.account,
+			})
+			.then((last) => {
+				if (!last || locals[cdt][cdn].qe_item_tax_template) return;
+				frappe.model.set_value(cdt, cdn, "qe_item_tax_template", last.qe_item_tax_template);
+				if (last.qe_hsn_sac && !locals[cdt][cdn].qe_hsn_sac) frappe.model.set_value(cdt, cdn, "qe_hsn_sac", last.qe_hsn_sac);
+			});
+	},
 	// a new expense row: debit follows the taxable amount until the bill is saved
 	qe_taxable_amount(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];

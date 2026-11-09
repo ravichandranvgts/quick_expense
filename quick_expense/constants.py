@@ -62,6 +62,8 @@ EXEMPTED = "Exempted"
 NON_GST_ITEM = "Non-GST"
 ZERO_TAX_TREATMENTS = (NIL_RATED, EXEMPTED, NON_GST_ITEM)
 
+# GSTIN detail sources that fill the supplier name and address
+GSTIN_FILLED_SOURCES = ("API", "Supplier Master")
 GSTIN_STATUS_BLOCKING = ("Cancelled", "Suspended", "Inactive")
 
 # Journal Entry fields a user may change while the bill is in approval
