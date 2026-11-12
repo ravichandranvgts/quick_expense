@@ -13,13 +13,26 @@ const QE_STATES = [
 ];
 const QE_GSTIN_TREATMENTS = ["Registered Regular", "Registered Composition", "SEZ"];
 
+// Roles that may make any kind of Journal Entry (journal_entry_service.FULL_JE_ROLES)
+const QE_FULL_JE_ROLES = ["Accounts User", "Accounts Manager", "Auditor", "System Manager"];
+
+// A new Journal Entry starts as a Quick Expense bill when the route asks for it, when it
+// was opened from the Quick Expense workspace (Frappe's "New" shortcut opens a plain new
+// form and drops the shortcut's filters), or when the user may only make Quick Expense bills.
+function qe_new_bill_expected() {
+	if (frappe.route_options && frappe.route_options.voucher_type === "Quick Expense") return true;
+	const previous = (frappe.route_history || []).slice(-2)[0] || [];
+	if (previous[0] === "Workspaces" && previous[previous.length - 1] === "Quick Expense") return true;
+	return frappe.session.user !== "Administrator" && !QE_FULL_JE_ROLES.some((role) => frappe.user.has_role(role));
+}
+
 frappe.ui.form.on("Journal Entry", {
 	setup(frm) {
 		frm.set_query("qe_item_tax_template", "accounts", () => ({ filters: { company: frm.doc.company, disabled: 0 } }));
 	},
 
 	onload(frm) {
-		if (frm.is_new() && frappe.route_options && frappe.route_options.voucher_type === "Quick Expense") {
+		if (frm.is_new() && frm.doc.voucher_type !== "Quick Expense" && qe_new_bill_expected()) {
 			frm.set_value("voucher_type", "Quick Expense");
 		}
 	},

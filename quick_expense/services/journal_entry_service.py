@@ -178,6 +178,11 @@ def write_back(je, bill):
 			je.append("accounts", payment)
 		je.flags.qe_payment_row = je.accounts[-1]
 
+	# append() keeps the idx a re-used row already had, so the user's rows and the new
+	# system rows would share numbers (1, 2, 3, 3); number them in their final order
+	for idx, row in enumerate(je.accounts, start=1):
+		row.idx = idx
+
 
 def system_rows(bill) -> list[dict]:
 	from india_compliance.gst_india.utils import get_gst_accounts_by_type

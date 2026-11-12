@@ -136,10 +136,30 @@ IC_SHORTCUTS = [
 	("GSTR-3B Details", "Report", "GSTR-3B Details", None),
 	("Journal Entries", "DocType", "Journal Entry", "List"),
 ]
-SHORTCUT_URLS = {
-	"Quick Expense Bills": "/app/journal-entry?voucher_type=Quick%20Expense",
-	"New Quick Expense Bill": "/app/journal-entry/new?voucher_type=Quick%20Expense",
+# DocType shortcuts, not URL ones: Frappe opens a URL shortcut in a new browser tab.
+# A plain {field: value} stats_filter becomes route_options, which filters the list
+# and pre-fills a new form, so both open in the same tab as Quick Expense.
+QE_ROUTE_FILTER = json.dumps({"voucher_type": JE_VOUCHER_TYPE})
+QE_SHORTCUTS = {
+	"Quick Expense Bills": "List",
+	"New Quick Expense Bill": "New",
 }
+
+
+def fix_url_shortcuts():
+	"""Turn the old URL shortcuts of an existing workspace into same-tab DocType shortcuts."""
+	for label, doc_view in QE_SHORTCUTS.items():
+		frappe.db.set_value(
+			"Workspace Shortcut",
+			{"parent": "Quick Expense", "parenttype": "Workspace", "label": label, "type": "URL"},
+			{
+				"type": "DocType",
+				"link_to": "Journal Entry",
+				"doc_view": doc_view,
+				"url": None,
+				"stats_filter": QE_ROUTE_FILTER,
+			},
+		)
 
 
 def create_workspace_and_cards():
@@ -170,6 +190,7 @@ def create_workspace_and_cards():
 		).insert(ignore_permissions=True)
 
 	if frappe.db.exists("Workspace", "Quick Expense"):
+		fix_url_shortcuts()
 		return
 
 	blocks = [
@@ -184,8 +205,8 @@ def create_workspace_and_cards():
 			{"id": f"nc-{len(blocks)}", "type": "number_card", "data": {"number_card_name": label, "col": 4}}
 		)
 	shortcuts = [
-		("Quick Expense Bills", "URL", None, None),
-		("New Quick Expense Bill", "URL", None, None),
+		("Quick Expense Bills", "DocType", "Journal Entry", "List"),
+		("New Quick Expense Bill", "DocType", "Journal Entry", "New"),
 		("Settings", "DocType", "Quick Expense Settings", None),
 		*IC_SHORTCUTS,
 	]
@@ -211,7 +232,7 @@ def create_workspace_and_cards():
 					"type": shortcut_type,
 					"link_to": link_to,
 					"doc_view": doc_view or "",
-					"url": SHORTCUT_URLS.get(label),
+					"stats_filter": QE_ROUTE_FILTER if label in QE_SHORTCUTS else None,
 					"report_ref_doctype": "Purchase Invoice" if shortcut_type == "Report" else None,
 				}
 				for label, shortcut_type, link_to, doc_view in shortcuts

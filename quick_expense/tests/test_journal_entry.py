@@ -549,6 +549,40 @@ class TestJournalEntryForm(QETestCase):
 		self.assertEqual(je_rows(je.name)[(cash(), "Payment")], -590)
 		self.assertEqual(je.accounts[0].qe_taxable_amount, 500)
 
+	def test_rows_are_numbered_in_order_after_save(self):
+		"""The form sends the typed rows with idx 1, 2; the system rows go between them."""
+		je = frappe.get_doc(
+			{
+				"doctype": "Journal Entry",
+				"voucher_type": "Quick Expense",
+				"company": COMPANY,
+				"company_gstin": TN_GSTIN,
+				"posting_date": today(),
+				"qe_gst_treatment": "Registered Regular",
+				"qe_supplier_gstin": SUPPLIER_TN,
+				"qe_supplier_legal_name": "Chennai Courier Services Private Limited",
+				"qe_supplier_invoice_no": "IDX-1",
+				"qe_supplier_invoice_date": today(),
+				"accounts": [
+					{
+						"idx": 1,
+						"account": "QE Courier - QET",
+						"qe_taxable_amount": 500,
+						"qe_item_tax_template": "GST 18% - QET",
+					},
+					{"idx": 2, "account": cash()},
+				],
+			}
+		).insert()
+		expected = list(range(1, len(je.accounts) + 1))
+		self.assertEqual([row.idx for row in je.accounts], expected)
+		self.assertEqual(je.accounts[-1].qe_gst_component, "Payment")
+
+		je.reload()
+		self.assertEqual([row.idx for row in je.accounts], expected)  # as stored
+		je.save()  # a re-save keeps the order and the numbers
+		self.assertEqual([row.idx for row in je.accounts], expected)
+
 	def test_gst_rows_cannot_be_typed(self):
 		entry = self.make_entry(insert=False)
 		entry.je.append("accounts", {"account": "Input Tax CGST - QET", "debit_in_account_currency": 90})
