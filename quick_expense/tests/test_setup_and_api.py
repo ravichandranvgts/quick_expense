@@ -72,10 +72,23 @@ class TestSetup(QETestCase):
 		self.assertIn("Quick Expense Approver", submitters)
 		self.assertNotIn("Quick Expense User", submitters)
 
+	def test_quick_expense_roles_can_read_the_company(self):
+		# India Compliance's form loads the company's GSTINs; without read on Company the
+		# lookup failed and stopped the rest of the form's onload
+		from india_compliance.gst_india.utils import get_gstin_list
+
+		for key in ("user", "approver"):
+			with as_(user(key)):
+				self.assertTrue(frappe.has_permission("Company", doc=COMPANY), key)
+				self.assertIn(TN_GSTIN, get_gstin_list(COMPANY))
+
 	def test_rerun_creates_no_duplicates(self):
-		counts = lambda: {
-			dt: frappe.db.count(dt) for dt in ("Custom Field", "Number Card", "Workspace", "Custom DocPerm")
-		}
+		def counts():
+			return {
+				dt: frappe.db.count(dt)
+				for dt in ("Custom Field", "Number Card", "Workspace", "Custom DocPerm")
+			}
+
 		before = counts()
 		setup_service.setup_all()
 		self.assertEqual(before, counts())
@@ -93,6 +106,23 @@ class TestSetup(QETestCase):
 			},
 			{"Journal Entry"},
 		)
+
+	def test_migrate_repairs_old_card_labels(self):
+		# an upgraded workspace kept the label of the removed "Pending Approval" card, and
+		# the workspace matches cards by label, so the Drafts card drew as an empty box
+		row = {
+			"parent": "Quick Expense",
+			"parenttype": "Workspace",
+			"number_card_name": "Quick Expense Drafts",
+		}
+		frappe.db.set_value("Workspace Number Card", row, "label", "Quick Expense Pending Approval")
+		setup_service.setup_all()
+		workspace = frappe.get_doc("Workspace", "Quick Expense")
+		self.assertEqual(
+			{card.number_card_name for card in workspace.number_cards},
+			{card.label for card in workspace.number_cards},
+		)
+		self.assertEqual(len(workspace.number_cards), len(setup_service.NUMBER_CARDS))
 
 	def test_follow_up_list(self):
 		from quick_expense.services.reconciliation_service import get_follow_up_entries

@@ -1,0 +1,33 @@
+name: Bug report
+description: Something in Quick Expense doesn't work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Quick Expense › New Quick Expense Bill
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: From Help › About, or `bench version`
+      placeholder: "Frappe 16.x, ERPNext 16.x, India Compliance 16.x, Quick Expense 1.5.0"
+    validations:
+      required: true
+  - type: input
+    id: role
+    attributes:
+      label: Role of the user who saw it
+      placeholder: "Quick Expense User / Quick Expense Approver / Accounts Manager"

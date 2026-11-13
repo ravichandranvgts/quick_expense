@@ -1,0 +1,13 @@
+{
+	"name": "quick-expense-ui-tests",
+	"private": true,
+	"description": "Playwright browser tests for Quick Expense. Kept outside the app's package.json so bench and Frappe Cloud never install Playwright.",
+	"scripts": {
+		"test": "playwright test",
+		"test:headed": "playwright test --headed",
+		"report": "playwright show-report"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.63.0"
+	}
+}

@@ -26,7 +26,7 @@ doctype_js = {
 
 after_install = "quick_expense.services.setup_service.after_install"
 after_migrate = "quick_expense.services.setup_service.after_migrate"
-setup_wizard_complete = "quick_expense.services.setup_service.setup_all"
+setup_wizard_complete = "quick_expense.services.setup_service.setup_wizard_complete"
 
 # India Compliance report overrides (Journal Entry mode) are applied per process
 before_request = ["quick_expense.overrides.ic_reports.apply_patches"]

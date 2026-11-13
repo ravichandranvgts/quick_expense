@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.5.0 – 13 Nov 2026
+
+* Published by VGTS (publisher, contact, copyright and license).
+* Fixed: the ERPNext setup wizard failed on a new site where Quick Expense was installed first (the usual order on Frappe Cloud).
+* The app's own approval engine, settings tables, controls, Setup Check and compatibility self-test are removed. Bills post with the standard Submit; use a Frappe Workflow for approval chains. Settings now has four switches. Patches `v1_4.remove_approval_and_settings_tables` and `v1_5.simpler_bill_form`.
+* Quick Expense Journal Entries show in India Compliance's IMS, and IMS-matched bills stay in the 2B tool before GSTR-2B is generated.
+* Works with India Compliance 16.9 – 16.11; supplier name and GST rate fill in automatically.
+* Accounting rows are numbered in order after save, and the workspace shortcuts open in the same tab.
+* Fixed: on upgraded sites the workspace's *Quick Expense Drafts* card drew as an empty box (its row kept the old "Pending Approval" label). Migrate repairs it.
+* Fixed: for a Quick Expense User, India Compliance's GSTIN lookup on the bill form failed for lack of read access to Company, which also stopped a new Journal Entry from starting as a Quick Expense bill. Both Quick Expense roles now read Company.
+* Tests run on a brand-new site (they complete the setup wizard and create India Compliance's GST templates themselves). 129 server tests.
+* Playwright browser tests (`ui_tests/`), and GitHub Actions for server tests, UI tests and linters on every push and pull request.
+
 ## v1.3.0 – 07 Nov 2026
 
 * The Journal Entry is the bill. Removed doctypes: Quick Expense Entry, Quick Expense Line, Quick Expense Category, Quick Expense Category Account, Quick Expense GSTIN Cache, Quick Expense Invoice Key.

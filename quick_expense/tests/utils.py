@@ -300,6 +300,13 @@ def ensure_test_masters():
 		for gstin in gstins:
 			ensure_company_address(name, gstin)
 		ensure_bank_account(name, abbr)
+		if not frappe.db.exists("Item Tax Template", {"company": name}):
+			# India Compliance makes the GST templates (GST 5%, 18% ...) and Input / Output
+			# GST accounts only in the setup wizard or on a country change, never for a
+			# company inserted in code
+			from india_compliance.gst_india.overrides.company import make_default_tax_templates
+
+			make_default_tax_templates(name)
 
 	for company, abbr in ((COMPANY, ABBR), (COMPANY_2, ABBR_2)):
 		parent = frappe.db.get_value(

@@ -166,7 +166,7 @@ class TestSupplierOnboarding(QETestCase):
 				"company": "_QE Test Company",
 				"posting_date": frappe.utils.today(),
 				"accounts": [
-					{"account": "Courier and Postage Charges - QET", "debit_in_account_currency": 10},
+					{"account": "QE Courier - QET", "debit_in_account_currency": 10},
 					{
 						"account": frappe.db.get_value(
 							"Account", {"company": "_QE Test Company", "account_type": "Cash", "is_group": 0}
@@ -231,7 +231,7 @@ class TestCreateSupplierButton(QETestCase):
 				"company": "_QE Test Company",
 				"posting_date": frappe.utils.today(),
 				"accounts": [
-					{"account": "Courier and Postage Charges - QET", "debit_in_account_currency": 10},
+					{"account": "QE Courier - QET", "debit_in_account_currency": 10},
 					{
 						"account": frappe.db.get_value(
 							"Account", {"company": "_QE Test Company", "account_type": "Cash", "is_group": 0}

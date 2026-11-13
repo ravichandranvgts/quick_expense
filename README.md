@@ -1,52 +1,37 @@
 # Quick Expense
 
-GST expense bills (courier, repairs, hotel, freight, stationery, fuel …) entered **directly in an ERPNext Journal Entry** of voucher type **Quick Expense**, with India Compliance. The app has no documents of its own. It adds GST fields to the Journal Entry and builds the GST rows; an amount-based approval matrix posts the Journal Entry, and India Compliance's reports read it.
+**GST expense bills in one screen, straight into GSTR-3B and 2B reconciliation.**
 
-Version 1.3.0 · Built from Development Prompt v1.2 (06 Nov 2026)
+Courier, repairs, hotel, freight, stationery, fuel: small GST bills that don't deserve a Purchase Invoice and a Supplier master each. Quick Expense lets you enter them **directly in an ERPNext Journal Entry** of voucher type *Quick Expense*. You type the supplier GSTIN, the taxable amount and the GST rate. The app fetches the supplier from the GST portal, builds the CGST / SGST / IGST, reverse charge and round-off rows, and blocks duplicate bills. India Compliance's own reports read the result.
 
-## Entering a bill
+* No new documents to learn: the Journal Entry is the bill.
+* No reports of its own: bills appear in India Compliance's **GSTR-3B Report**, **GST Purchase Register**, **GSTR-3B Details**, **Purchase Reconciliation Tool** (2A / 2B) and **IMS**.
+* Eligible ITC, 17(5) blocked credit, place-of-supply restrictions, reverse charge and import of services are all classified the way India Compliance classifies a Purchase Invoice.
 
-Go to *Journal Entry › New*, set **Voucher Type = Quick Expense** (or use the workspace shortcut *New Quick Expense Bill*), and fill in:
+Version 1.5.0 · Published by VGTS · MIT License
 
-* **Supplier and Bill:**
-  - GST Treatment and **Supplier GSTIN**. On save the legal name, trade name, address, pincode, state and GSTIN status are filled from the GST portal and become **read-only**. They stay editable only for unregistered suppliers, or when the portal can't be reached (then an Accounts Manager approves).
-  - Supplier invoice number and date.
-  - *Bill is addressed to the selected Company GSTIN*.
-  - *Is Reverse Charge* (always on for overseas suppliers).
-  - *Payment to a Transporter*.
-* **Accounting Entries table:**
-  - one row per expense, with the Expense Account, **Taxable Amount**, **GST Rate (Item Tax Template)**, HSN / SAC and **Eligibility for ITC** (empty = eligible; 17(5) for food, cab hire, passenger vehicles, gifts and staff welfare). Optionally add *Location of Service State* (a hotel or property in another state) and *GST as per Bill*;
-  - **one Cash or Bank row** for the payment. Its amount is filled by the system, and the user's default cash account is added automatically. For bank, the cheque / UTR goes in Reference No and Date.
+[![Server Tests](https://github.com/ravichandranvgts/quick_expense/actions/workflows/server-tests.yml/badge.svg)](https://github.com/ravichandranvgts/quick_expense/actions/workflows/server-tests.yml) [![UI Tests](https://github.com/ravichandranvgts/quick_expense/actions/workflows/ui-tests.yml/badge.svg)](https://github.com/ravichandranvgts/quick_expense/actions/workflows/ui-tests.yml) [![Linters](https://github.com/ravichandranvgts/quick_expense/actions/workflows/linters.yml/badge.svg)](https://github.com/ravichandranvgts/quick_expense/actions/workflows/linters.yml)
 
-The calculated GST breakdown, place of supply and ITC classification sit in the collapsed *GST Details* section. The approval details appear only once the bill is in approval.
+## Requirements
 
-**Save** adds the CGST / SGST / IGST rows, the reverse charge rows and the round-off row, sets the cash / bank row's amount, and fills the totals. **Submit for Approval** sends the bill through the matrix; the Journal Entry is submitted automatically after the last approval. The standard Submit button is blocked for Quick Expense bills.
+| App | Version |
+| --- | --- |
+| Frappe | v16 |
+| ERPNext | v16 |
+| India Compliance | v16 (verified with 16.9 – 16.11) |
 
-Users with only the *Quick Expense User* or *Quick Expense Approver* role see and create only Quick Expense Journal Entries.
-
-Quick Expense adds **no reports of its own**. Its Journal Entries appear in India Compliance's own:
-
-* **GSTR-3B Report**: Tables 4, 5 and 3.1(d)
-* **GST Purchase Register** and **GSTR-3B Details**
-* **Purchase Reconciliation Tool**: 2A / 2B matching, with Accept / Pending / Ignore / Link / Unlink
-
-Version 1.3.0 · Built from Development Prompt v1.2 (06 Nov 2026)
-
-## Verified versions
-
-| App | Version | Branch |
-| --- | --- | --- |
-| Frappe | 16.55.2 | version-16 |
-| ERPNext | 16.54.0 | version-16 |
-| India Compliance | 16.11.0 | version-16 |
-| Python / Node | 3.14 / 24 | |
+The company must be an Indian company with at least one GSTIN set up in India Compliance.
 
 ## Installation
+
+**Frappe Cloud:** install *Quick Expense* from the Marketplace on a v16 bench that has ERPNext and India Compliance.
+
+**Self-hosted:**
 
 ```bash
 bench get-app erpnext --branch version-16
 bench get-app india_compliance https://github.com/resilient-tech/india-compliance --branch version-16
-bench get-app quick_expense <repository-url>
+bench get-app https://github.com/ravichandranvgts/quick_expense
 bench --site <site> install-app erpnext india_compliance quick_expense
 bench --site <site> migrate
 ```
@@ -54,16 +39,36 @@ bench --site <site> migrate
 Install and every migrate run `setup_service.setup_all()`. It is idempotent and never overwrites your edits:
 
 1. Creates the roles *Quick Expense User*, *Quick Expense Approver* and *Finance Manager*. *Accounts Manager* comes from ERPNext.
-2. Adds custom fields on Journal Entry and Journal Entry Account, including the standard **Reconciliation Status** field India Compliance uses, plus the voucher type *Quick Expense*.
-3. Gives the Quick Expense roles Journal Entry permissions (limited to Quick Expense bills by the app's permission hooks).
-4. For every Indian company: a Company Settings row, the default cash / bank account and three default approval rules.
-5. Creates the workspace *Quick Expense*: five number cards on Quick Expense Journal Entries, plus shortcuts to India Compliance's Purchase Reconciliation Tool, GSTR-3B Report, GST Purchase Register and GSTR-3B Details.
+2. Adds the custom fields on Journal Entry and Journal Entry Account, including the standard **Reconciliation Status** field India Compliance uses, plus the voucher type *Quick Expense*.
+3. Gives the Quick Expense roles Journal Entry permissions, limited to Quick Expense bills by the app's permission hooks.
+4. Creates the workspace *Quick Expense*: five number cards (this month's spend, eligible ITC, ineligible GST, drafts, bills pending 2B) and shortcuts to the bill list, a new bill, and India Compliance's reports.
 
-A company created later gets step 4 automatically. **Run Setup Check** in Settings lists anything missing, per company and GSTIN.
+## Entering a bill
 
-**Upgrading:**
-* from 1.0, the patch `v1_1/journal_entry_only` removes the old app reports and the Purchase Invoice custom fields;
-* from 1.2, the patch `v1_3/journal_entry_is_the_bill` moves each posted bill's details, totals and approval history onto its Journal Entry, then deletes *Quick Expense Entry*, its lines, *Quick Expense Category*, *Quick Expense GSTIN Cache* and *Quick Expense Invoice Key*. Posted Journal Entries are not changed in the books. Drafts that had no Journal Entry yet are dropped.
+Open **Quick Expense › New Quick Expense Bill** (or *Journal Entry › New* with Voucher Type *Quick Expense*) and fill in:
+
+* **Supplier and Bill:**
+  - GST Treatment and **Supplier GSTIN**. The legal name, trade name, address, pincode, state and GSTIN status are filled from the GST portal and become read-only. They stay editable for unregistered suppliers, or when the portal can't be reached.
+  - Supplier invoice number and date.
+  - *Bill is addressed to the selected Company GSTIN*.
+  - *Is Reverse Charge* (always on for overseas suppliers).
+* **Accounting Entries table:**
+  - one row per expense: Expense Account, **Taxable Amount**, **GST Rate (Item Tax Template)**, HSN / SAC and **ITC Eligibility** (17(5) for food, cab hire, passenger vehicles, gifts and staff welfare). Optionally *Location of Service State* (a hotel or property in another state) and *GST as per Bill*;
+  - **one Cash or Bank row** for the payment. Its amount is filled by the system. For bank, put the cheque / UTR in Reference No and Date.
+
+**Save** adds the CGST / SGST / IGST rows, the reverse charge rows and the round-off row, sets the payment row's amount, numbers the rows in order and fills the totals. The calculated GST breakdown, place of supply and ITC classification sit in the collapsed *GST Details* section.
+
+**Submit** posts the bill, as for any Journal Entry. **Cancel with Reason** cancels it; a reason is required once the bill is reconciled with GSTR-2B.
+
+## Roles and approval
+
+| Role | Can do |
+| --- | --- |
+| Quick Expense User | Create and save Quick Expense bills. Sees only Quick Expense Journal Entries. Cannot submit. |
+| Quick Expense Approver | Everything above, plus Submit and Cancel. |
+| Accounts User / Accounts Manager | Full Journal Entry access, as in ERPNext. |
+
+The app has no approval engine of its own. For an approval chain (for example by amount), create a standard **Frappe Workflow** on Journal Entry with a condition such as `doc.voucher_type == "Quick Expense"`. Workflow states, notifications and the approval history then work as for any other document.
 
 ## What a posted bill looks like
 
@@ -111,18 +116,9 @@ Each wrapper calls the original first. One small script, `public/js/override_ban
 
 Rows follow the *ITC Claim Period* or *Posting Date* filter of the report, are kept per Company GSTIN, and appear once.
 
-### Compatibility guard
+### After an India Compliance update
 
-On every migrate, and daily, the installed India Compliance version is compared with the *Verified India Compliance Version*. If they differ, a read-only self-test runs. It checks that every class, method and field used still exists, that Journal Entry rows and Purchase Invoice rows are classified identically, and that all queries run for every company and GSTIN.
-
-If the self-test fails, the overrides switch off. A red banner then shows on the GSTR-3B Report, Purchase Reconciliation Tool and Settings, and Accounts Managers get an email. **Run Compatibility Self-test** in Settings re-checks it.
-
-**After every India Compliance update:**
-
-1. Run `bench migrate`.
-2. Check *Settings › India Compliance Reports*.
-3. Run the automated tests on a copy of the site.
-4. Click **Run Compatibility Self-test**.
+The report and reconciliation overrides wrap India Compliance methods by name. They are applied once per process; if India Compliance renames something, the override is skipped and an Error Log titled *could not apply India Compliance report overrides* is written instead of breaking the report. After every India Compliance update, run `bench migrate`, check the Error Log, and run the tests below on a copy of the site.
 
 ## Supplier onboarding from a Journal Entry
 
@@ -140,76 +136,47 @@ On a Quick Expense Journal Entry, **Create Supplier** opens a preview first. It 
 
 The code is `services/supplier_service.py` and `public/js/journal_entry.js`.
 
-## Settings walkthrough
+## Settings
 
-| Tab | What to set |
-| --- | --- |
-| General | Naming series, rounding, direct entry in Journal Entry, Company Settings rows, **Allowed Cash and Bank Accounts**, User Defaults |
-| GSTIN | India Compliance GSTIN API (primary source), cancelled / suspended GSTIN action, cache days, approval when the name is typed manually |
-| Controls | Attachments, maximum amount per entry (₹50,000), back-dated days, tax tolerance, cash limits (Income Tax 40A(3)), ITC time-limit warning, GST Lock Date per Company GSTIN, own-entries-only |
-| Approval | Approval Required, escalation days, self approval, the Approval Matrix |
-| India Compliance Reports | Input GST account protection, include in GSTR-3B / Purchase Register, compatibility guard |
-| Notifications | Approver, creator and monthly 2B follow-up emails |
+*Quick Expense Settings* has four switches:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Enable Quick Expense | on | When off, Quick Expense bills can no longer be saved; other Journal Entries are not affected. |
+| Round Grand Total to Nearest Rupee | on | Adds a round-off row so the amount paid is a whole rupee. |
+| Use India Compliance GSTIN API | on | Fetches supplier details from the GST portal through India Compliance (needs an India Compliance API account). |
+| Monthly 2B Pending Follow-up Email | on | Emails Accounts Managers a list of bills still not matched in GSTR-2B after one return period. |
+
+Company defaults (primary GST address, cost center, round-off account) come from the Company.
 
 ## Multi-company and multi-GSTIN
 
-* **GSTIN and place of supply:** each entry has one Company and one Company GSTIN. Place of supply, and CGST + SGST vs IGST, are decided against the selected GSTIN's state.
-* **Bill addressed:** *Bill is addressed to the selected Company GSTIN* must be ticked. Otherwise the GST is ineligible and an Accounts Manager must approve.
+* **GSTIN and place of supply:** each bill has one Company and one Company GSTIN. Place of supply, and CGST + SGST vs IGST, are decided against the selected GSTIN's state.
+* **Bill addressed:** if *Bill is addressed to the selected Company GSTIN* is not ticked, the GST is treated as ineligible.
 * **Own GSTINs refused:** supplier GSTINs of any company in the system, or with the company's own PAN, are refused.
-* **Duplicate key:** Company GSTIN + Supplier GSTIN + normalised invoice no + GST financial year, stored on the Journal Entry. A bill holds the key while it's in approval or posted. A database lock on the key serialises simultaneous submissions. It is also checked against standard Purchase Invoices.
-* **Per GSTIN:** lock dates, filed-period checks, reports and reconciliation all work per GSTIN.
-
-## Approval matrix
-
-| Grand total | Levels |
-| --- | --- |
-| up to 5,000 | Quick Expense Approver |
-| 5,000.01 – 25,000 | Quick Expense Approver → Accounts Manager |
-| 25,000.01 – 50,000 | Quick Expense Approver → Accounts Manager → Finance Manager |
-| above 50,000 | not allowed – use a standard Purchase Invoice |
-
-An Accounts Manager level is added when any of these applies:
-
-* eligibility is changed;
-* reverse charge or the place of supply is overridden;
-* the supplier name is typed manually;
-* the bill is not addressed to the selected GSTIN;
-* the bill is back-dated;
-* the cash limit is exceeded;
-* the tax tolerance is used;
-* the category is Miscellaneous;
-* the ITC claim period is moved;
-* the GSTIN is cancelled and the action is set to Warn.
-
-Other approval rules:
-
-* The approval chain is frozen on the entry when it is submitted.
-* Approvers may change only Remarks and Cost Center. An amount change sends the entry back to Level 1.
-* Creators cannot approve their own entries.
-* If posting fails, the entry shows *Approved – Posting Failed* with a Retry button for the Accounts Manager.
+* **Duplicate key:** Company GSTIN + Supplier GSTIN + normalised invoice no + GST financial year, stored on the Journal Entry. A submitted bill holds the key; a database lock on the key serialises simultaneous submissions. It is also checked against Purchase Invoices.
+* **Per GSTIN:** reports and reconciliation work per Company GSTIN.
 
 ## Tests
+
+Every push and pull request runs three checks on GitHub Actions. Each builds a fresh bench with Frappe, ERPNext and India Compliance `version-16`:
+
+| Check | What it runs |
+| --- | --- |
+| Server Tests | 129 Python tests: GSTR-3B table values, the Purchase Register, and full reconciliation runs through India Compliance's Purchase Reconciliation Tool (exact match, Accept, Unlink, manual Link, Only in Books / Ignore, Mismatch, cancellation after reconciliation). The GST portal API is mocked. |
+| UI Tests | Playwright in Chromium: the workspace cards and shortcuts, entering and saving a GST bill, the duplicate-bill refusal, and what a Quick Expense User sees. |
+| Linters | pre-commit (ruff, prettier, eslint) and Frappe's semgrep rules. |
+
+Locally, on a test site (never one with real data):
 
 ```bash
 bench --site <test-site> set-config allow_tests true
 bench --site <test-site> run-tests --app quick_expense
+
+cd apps/quick_expense/ui_tests && npm install && npx playwright test
 ```
 
-149 tests (every edge case now runs on Journal Entries). They include GSTR-3B table values, the Purchase Register, and full reconciliation runs through India Compliance's Purchase Reconciliation Tool: exact match, Accept, Unlink, manual Link, Only in Books / Ignore, Mismatch, and cancellation after reconciliation. The GST portal API is mocked.
-
-## Demo site (quickexpense.localhost)
-
-| User | Password | Role |
-| --- | --- | --- |
-| Administrator | admin | everything |
-| clerk@vgts.example | Demo@12345 | Quick Expense User |
-| approver@vgts.example | Demo@12345 | Quick Expense Approver |
-| accounts@vgts.example | Demo@12345 | Accounts Manager |
-| finance@vgts.example | Demo@12345 | Finance Manager |
-
-VGTS Traders Private Limited has GSTINs in Tamil Nadu (33AAKCS2468M1ZW) and Karnataka (29AAKCS2468M1ZL).
-
-The demo includes sample GSTR-2B records: one exact match (already accepted), one amount mismatch, and one invoice that is in 2B but not in the books. Open *Purchase Reconciliation Tool*, choose GSTIN 33AAKCS2468M1ZW and this month, and click *Reconcile*.
+See [CONTRIBUTING](.github/CONTRIBUTING.md) for details.
 
 ## Guides
 
@@ -217,6 +184,10 @@ The demo includes sample GSTR-2B records: one exact match (already accepted), on
 * [Approver guide](docs/approver_guide.md)
 * [Changelog](CHANGELOG.md)
 
+## Support
+
+Open an issue at https://github.com/ravichandranvgts/quick_expense/issues.
+
 ## License
 
-MIT
+MIT © 2026 VGTS

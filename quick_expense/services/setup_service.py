@@ -27,6 +27,13 @@ def after_migrate():
 	setup_all()
 
 
+def setup_wizard_complete(wizard_answers=None):
+	# Frappe passes the wizard's answers; setup_all() doesn't need them. Without this
+	# wrapper the wizard failed on any site where Quick Expense was installed first,
+	# which is how Frappe Cloud creates sites.
+	setup_all()
+
+
 def setup_all():
 	create_roles()
 	create_custom_fields(CUSTOM_FIELDS, update=True)
@@ -84,6 +91,13 @@ def grant_journal_entry_permissions():
 			add_permission("Journal Entry", role, 0)
 		for right, value in rights.items():
 			update_permission_property("Journal Entry", role, 0, right, value, validate=False)
+
+		# India Compliance's Journal Entry form looks up the company's GSTINs on load and
+		# needs read on Company. Without it the lookup fails, Frappe skips the form's later
+		# onload handlers, and a Quick Expense User's new bill never became Quick Expense.
+		if not frappe.db.exists("Custom DocPerm", {"parent": "Company", "role": role, "permlevel": 0}):
+			add_permission("Company", role, 0)
+		update_permission_property("Company", role, 0, "read", 1, validate=False)
 
 
 def set_settings_defaults():
@@ -162,6 +176,20 @@ def fix_url_shortcuts():
 		)
 
 
+def fix_number_card_labels():
+	"""The workspace finds each card's data by its row label, not by the card name. The
+	Drafts card replaced "Pending Approval" under a new name, but upgraded workspaces kept
+	the old row label, so the Drafts card drew as an empty box."""
+	for label, *_rest in NUMBER_CARDS:
+		frappe.db.set_value(
+			"Workspace Number Card",
+			{"parent": "Quick Expense", "parenttype": "Workspace", "number_card_name": label},
+			"label",
+			label,
+		)
+		frappe.db.set_value("Number Card", label, "label", label)
+
+
 def create_workspace_and_cards():
 	doctype = "Journal Entry"
 	for label, function, field, filters in NUMBER_CARDS:
@@ -191,6 +219,7 @@ def create_workspace_and_cards():
 
 	if frappe.db.exists("Workspace", "Quick Expense"):
 		fix_url_shortcuts()
+		fix_number_card_labels()
 		return
 
 	blocks = [
