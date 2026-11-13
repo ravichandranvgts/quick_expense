@@ -5,7 +5,7 @@ app_description = "One-screen GST expense entry for ERPNext with India Complianc
 app_email = "256799630+ravichandranvgts@users.noreply.github.com"
 app_license = "mit"
 
-required_apps = ["frappe", "erpnext", "india_compliance"]
+required_apps = ["erpnext", "india_compliance"]
 
 add_to_apps_screen = [
 	{
