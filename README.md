@@ -183,6 +183,7 @@ See [CONTRIBUTING](.github/CONTRIBUTING.md) for details.
 * [User guide](docs/user_guide.md)
 * [Approver guide](docs/approver_guide.md)
 * [Changelog](CHANGELOG.md)
+* [Terms of Service](docs/terms_of_service.md) · [Privacy Policy](docs/privacy_policy.md)
 
 ## Support
 
